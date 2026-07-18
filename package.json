@@ -1,0 +1,13 @@
+{
+  "name": "xaut-grade-dashboard",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler pages dev public",
+    "deploy": "wrangler pages deploy public",
+    "test": "node tests/api.test.mjs && node tests/browser.test.mjs"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}

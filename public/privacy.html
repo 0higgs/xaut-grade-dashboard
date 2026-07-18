@@ -1,0 +1,10 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>隐私说明 · 成绩速查</title>
+  <style>body{margin:0;background:#f4f6fb;color:#172033;font:15px/1.8 "Microsoft YaHei",system-ui,sans-serif}.page{max-width:760px;margin:40px auto;padding:32px;background:#fff;border:1px solid #e7eaf2;border-radius:18px;box-shadow:0 14px 40px rgba(37,58,119,.08)}h1{margin-top:0}h2{margin-top:28px;font-size:18px}a{color:#2458e6}.notice{padding:13px 15px;background:#fff7e8;border-radius:10px;color:#795313}@media(max-width:700px){.page{margin:0;border:0;border-radius:0;padding:24px;min-height:100vh}}</style>
+</head>
+<body><main class="page"><h1>隐私说明</h1><p class="notice">发布前请由实际部署者补充联系方式、运营者名称和生效日期。</p><h2>处理的数据</h2><p>登录时，账号、密码和验证码会通过本网站的 Cloudflare Pages Function 临时转发至西安理工大学教务系统。密码仅用于当前登录请求，不写入数据库、日志或浏览器存储。</p><h2>会话与成绩</h2><p>教务系统会话信息使用 AES-256-GCM 加密，保存在短时 HttpOnly Cookie 中，默认十五分钟失效。获取到的成绩在浏览器中解析，并保存在当前设备的 localStorage，部署端不建立成绩数据库。</p><h2>第三方服务</h2><p>本网站使用 Cloudflare 提供网页托管和服务端函数，并连接西安理工大学教务系统。网络服务提供者可能按其安全策略处理必要的 IP 地址和请求元数据。</p><h2>用户控制</h2><p>用户可以点击“退出登录”立即清除会话，也可以使用“清空数据”删除当前浏览器保存的成绩。</p><h2>风险说明</h2><p>本工具为非官方项目。正式成绩以学校教务系统为准。若不同意通过部署者的服务转发登录请求，请勿使用自动获取功能，可改用 CSV 或复制粘贴导入。</p><p><a href="./">返回成绩速查</a></p></main></body>
+</html>
