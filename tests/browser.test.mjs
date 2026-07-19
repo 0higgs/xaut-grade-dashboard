@@ -32,8 +32,9 @@ const injectedTest = `<script>
       clearInterval(timer);
       document.querySelector('.mobile-nav [data-view="schedule"]').click();
       const scheduleDisplay=getComputedStyle(document.querySelector('#scheduleView')).display;
+      const cards=[...document.querySelectorAll('.course-card')],visibleCards=cards.filter(card=>!card.hidden).length,sameCourseColor=cards[0].style.getPropertyValue('--course')===cards[2].style.getPropertyValue('--course'),notesText=document.querySelector('#scheduleNotes').textContent;
       document.querySelector('.mobile-nav [data-view="analysis"]').click();
-      const values=[rows,document.querySelectorAll('#yearFilter option').length,getComputedStyle(document.querySelector('.mobile-nav')).display,scheduleDisplay,scheduleRows,getComputedStyle(document.querySelector('#analysisView')).display,document.querySelectorAll('#analysisBody tr').length,document.documentElement.scrollWidth<=window.innerWidth];
+      const values=[rows,document.querySelectorAll('#yearFilter option').length,getComputedStyle(document.querySelector('.mobile-nav')).display,scheduleDisplay,scheduleRows,cards.length,visibleCards,sameCourseColor,!notesText.includes('有课表课程'),document.querySelector('#scheduleExportBtn')!==null,getComputedStyle(document.querySelector('#analysisView')).display,document.querySelectorAll('#analysisBody tr').length,document.documentElement.scrollWidth<=window.innerWidth];
       document.querySelector('#logoutBtn').click();
       setTimeout(()=>{values.push(document.querySelector('#loginBtn').hidden,document.querySelector('#logoutBtn').hidden);result.textContent='PASS|'+values.join('|')},150);
     }else if(++attempts>40){clearInterval(timer);result.textContent='FAIL|rows='+rows+'|progress='+document.querySelector('#loginProgress').textContent}
@@ -60,7 +61,7 @@ const server = http.createServer(async (req, res) => {
   }
   if (req.url.startsWith('/api/schedule')) {
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ ok: true, terms: ['2024-2025-1', '2024-2025-2'], selectedTerm: '2024-2025-2', tables: [], page: '<html><body><table id="kbtable"><tr><th>节次</th><th>星期一</th><th>星期二</th></tr><tr><td>第一节</td><td><table><tr><td>高等数学<br>1-16周<br>A101</td></tr></table></td><td></td></tr></table></body></html>' }));
+    res.end(JSON.stringify({ ok: true, terms: ['2024-2025-1', '2024-2025-2'], selectedTerm: '2024-2025-2', tables: [], page: '<html><body><table id="kbtable"><tr><th>节次</th><th>星期一</th><th>星期二</th></tr><tr><td>第一节</td><td><div class="kbcontent">高等数学<br><font title="老师">王老师</font><br><font title="周次">1-8(周)</font><br><font title="节次">[0102节]</font><br><font title="教室">A101</font></div><div class="kbcontent">线性代数<br><font title="老师">李老师</font><br><font title="周次">9-16(周)</font><br><font title="节次">[0102节]</font><br><font title="教室">A101</font></div></td><td><div class="kbcontent">高等数学<br><font title="老师">王老师</font><br><font title="周次">1-8(周)</font><br><font title="节次">[0102节]</font><br><font title="教室">A102</font></div></td></tr></table><table><tr><th>有课表课程</th></tr><tr><td>这里不应显示</td></tr></table><table><tr><th>无课表课程</th></tr><tr><td>劳动教育</td></tr></table></body></html>' }));
     return;
   }
   if (req.url === '/api/logout' && req.method === 'POST') {
@@ -99,8 +100,8 @@ try {
   assert.equal(exitCode, 0, errors);
   const match = output.match(/<pre id="browser-test-result">([^<]+)<\/pre>/);
   assert.ok(match, 'Browser test did not produce a result');
-  assert.equal(match[1], 'PASS|2|2|flex|block|2|block|2|true|false|true');
-  console.log('Browser tests passed: direct login, grades, timetable, term filter, mobile navigation, analysis, logout');
+  assert.equal(match[1], 'PASS|2|2|flex|block|2|3|2|true|true|true|block|2|true|false|true');
+  console.log('Browser tests passed: timetable cards, stable colors, compact conflicts, clean notes, PDF export, mobile navigation');
 } finally {
   server.closeAllConnections?.();
   server.close();
