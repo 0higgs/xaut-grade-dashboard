@@ -60,7 +60,7 @@ const server = http.createServer(async (req, res) => {
   }
   if (req.url.startsWith('/api/schedule')) {
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ ok: true, terms: ['2024-2025-1', '2024-2025-2'], selectedTerm: '2024-2025-2', tables: ['<table id="kbtable"><tr><th>节次</th><th>星期一</th><th>星期二</th></tr><tr><td>第一节</td><td>高等数学<br>1-16周<br>A101</td><td></td></tr></table>'] }));
+    res.end(JSON.stringify({ ok: true, terms: ['2024-2025-1', '2024-2025-2'], selectedTerm: '2024-2025-2', tables: [], page: '<html><body><table id="kbtable"><tr><th>节次</th><th>星期一</th><th>星期二</th></tr><tr><td>第一节</td><td><table><tr><td>高等数学<br>1-16周<br>A101</td></tr></table></td><td></td></tr></table></body></html>' }));
     return;
   }
   if (req.url === '/api/logout' && req.method === 'POST') {

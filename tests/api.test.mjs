@@ -112,6 +112,7 @@ assert.deepEqual(scheduleData.terms, ['2024-2025-1', '2024-2025-2']);
 assert.equal(scheduleData.selectedTerm, '2024-2025-2');
 assert.equal(scheduleData.tables.length, 2);
 assert.match(scheduleData.tables[0], /星期一/);
+assert.match(scheduleData.page, /id="kbtable"/);
 
 const logout = await onRequest(context('logout', 'POST', { cookie: cookiePair(schedule) }));
 assert.equal(logout.status, 200);

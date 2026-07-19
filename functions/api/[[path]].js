@@ -163,7 +163,7 @@ async function handleSchedule(request, env) {
     throw httpError(400, '学期格式无效');
   }
 
-  const schedulePath = '/jsxsd/xskb/xskb_list.do?Ves632DSdyV=NEW_XSD_PYGL';
+  const schedulePath = '/jsxsd/xskb/xskb_list.do';
   const firstResult = await upstreamRequest(schedulePath, {
     method: 'GET',
     headers: { Accept: 'text/html,application/xhtml+xml' }
@@ -198,7 +198,7 @@ async function handleSchedule(request, env) {
     cookies: state.cookies,
     exp: Date.now() + SESSION_TTL_SECONDS * 1000
   }, env);
-  return jsonResponse({ ok: true, terms, selectedTerm, tables }, 200, {
+  return jsonResponse({ ok: true, terms, selectedTerm, tables, page: html }, 200, {
     'Set-Cookie': sessionCookie(token, request)
   });
 }
