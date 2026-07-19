@@ -2,6 +2,7 @@ const DEFAULT_UPSTREAM = 'https://jwgl.xaut.edu.cn';
 const SESSION_COOKIE = 'xaut_grade_session';
 const SESSION_TTL_SECONDS = 15 * 60;
 const MAX_TERMS = 30;
+const MAX_UPSTREAM_BYTES = 2 * 1024 * 1024;
 const SESSION_AAD = new TextEncoder().encode('xaut-grade-session-v1');
 
 export async function onRequest(context) {
@@ -23,6 +24,9 @@ export async function onRequest(context) {
     }
     if (action === 'grades' && request.method === 'GET') {
       return await handleGrades(request, env);
+    }
+    if (action === 'schedule' && request.method === 'GET') {
+      return await handleSchedule(request, env);
     }
     if (action === 'logout' && request.method === 'POST') {
       assertSameOrigin(request);
@@ -152,6 +156,53 @@ async function handleGrades(request, env) {
   });
 }
 
+async function handleSchedule(request, env) {
+  const state = await requireSession(request, env);
+  const requestedTerm = new URL(request.url).searchParams.get('term')?.trim() || '';
+  if (requestedTerm && !/^20\d{2}-20\d{2}-[123]$/.test(requestedTerm)) {
+    throw httpError(400, '学期格式无效');
+  }
+
+  const schedulePath = '/jsxsd/xskb/xskb_list.do?Ves632DSdyV=NEW_XSD_PYGL';
+  const firstResult = await upstreamRequest(schedulePath, {
+    method: 'GET',
+    headers: { Accept: 'text/html,application/xhtml+xml' }
+  }, state.cookies, env);
+  let html = await firstResult.text();
+  if (isLoginPage(html)) throw httpError(401, '登录会话已失效，请重新登录');
+
+  const terms = parseScheduleTerms(html).slice(0, MAX_TERMS);
+  if (requestedTerm && terms.length && !terms.includes(requestedTerm)) {
+    throw httpError(400, '所选学期不在教务系统可用范围内');
+  }
+  const selectedFromPage = parseSelectedScheduleTerm(html);
+  const selectedTerm = requestedTerm || selectedFromPage || terms[0] || '';
+
+  if (selectedTerm && selectedTerm !== selectedFromPage) {
+    const body = new URLSearchParams({ xnxq01id: selectedTerm });
+    const result = await upstreamRequest(schedulePath, {
+      method: 'POST',
+      headers: {
+        Accept: 'text/html,application/xhtml+xml',
+        'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+        Referer: `${upstreamOrigin(env)}${schedulePath}`
+      },
+      body: body.toString()
+    }, state.cookies, env);
+    html = await result.text();
+    if (isLoginPage(html)) throw httpError(401, '登录会话已失效，请重新登录');
+  }
+
+  const tables = findScheduleTables(html);
+  const token = await encryptSession({
+    cookies: state.cookies,
+    exp: Date.now() + SESSION_TTL_SECONDS * 1000
+  }, env);
+  return jsonResponse({ ok: true, terms, selectedTerm, tables }, 200, {
+    'Set-Cookie': sessionCookie(token, request)
+  });
+}
+
 async function upstreamRequest(path, options, jar, env) {
   let url = new URL(path, upstreamOrigin(env));
   let method = options.method || 'GET';
@@ -172,7 +223,7 @@ async function upstreamRequest(path, options, jar, env) {
     mergeResponseCookies(jar, response.headers);
 
     if (![301, 302, 303, 307, 308].includes(response.status)) {
-      const responseBody = await response.arrayBuffer();
+      const responseBody = await readResponseBody(response);
       if (!response.ok) throw httpError(502, `教务系统返回 HTTP ${response.status}`, false);
       return {
         response,
@@ -195,6 +246,35 @@ async function upstreamRequest(path, options, jar, env) {
   throw httpError(502, '教务系统跳转次数过多', false);
 }
 
+async function readResponseBody(response) {
+  const declaredLength = Number(response.headers.get('content-length') || 0);
+  if (declaredLength > MAX_UPSTREAM_BYTES) {
+    throw httpError(502, '教务系统返回内容过大', false);
+  }
+  if (!response.body) return new Uint8Array();
+
+  const reader = response.body.getReader();
+  const chunks = [];
+  let total = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > MAX_UPSTREAM_BYTES) {
+      await reader.cancel();
+      throw httpError(502, '教务系统返回内容过大', false);
+    }
+    chunks.push(value);
+  }
+  const combined = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    combined.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return combined;
+}
+
 function parseAcademicTerms(html) {
   const select = html.match(/<select\b[^>]*(?:name|id)=["']kksj["'][^>]*>[\s\S]*?<\/select>/i)?.[0] || '';
   const terms = [];
@@ -203,6 +283,38 @@ function parseAcademicTerms(html) {
     if (/^20\d{2}\D+20\d{2}\D+[123]$/.test(value) && !terms.includes(value)) terms.push(value);
   }
   return terms;
+}
+
+function parseScheduleTerms(html) {
+  const select = html.match(/<select\b[^>]*(?:name|id)=["']xnxq01id["'][^>]*>[\s\S]*?<\/select>/i)?.[0] || '';
+  const terms = [];
+  for (const match of select.matchAll(/<option\b[^>]*value=["']([^"']*)["'][^>]*>/gi)) {
+    const value = decodeHtml(match[1]).trim();
+    if (/^20\d{2}-20\d{2}-[123]$/.test(value) && !terms.includes(value)) terms.push(value);
+  }
+  return terms;
+}
+
+function parseSelectedScheduleTerm(html) {
+  const select = html.match(/<select\b[^>]*(?:name|id)=["']xnxq01id["'][^>]*>[\s\S]*?<\/select>/i)?.[0] || '';
+  const selected = select.match(/<option\b[^>]*value=["']([^"']+)["'][^>]*\bselected(?:=["'][^"']*["'])?[^>]*>/i)?.[1]
+    || select.match(/<option\b[^>]*\bselected(?:=["'][^"']*["'])?[^>]*value=["']([^"']+)["'][^>]*>/i)?.[1]
+    || '';
+  return decodeHtml(selected).trim();
+}
+
+function findScheduleTables(html) {
+  const matches = [];
+  for (const match of html.matchAll(/<table\b[^>]*>[\s\S]*?<\/table>/gi)) {
+    const table = match[0];
+    const text = decodeHtml(table.replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim();
+    const isTimetable = /星期[一二三四五六日天]|周[一二三四五六日天]/.test(text)
+      && /节次|上午|下午|晚上|课程/.test(text);
+    const isNoteTable = /备注/.test(text) && /课程|教学班|上课/.test(text);
+    if ((isTimetable || isNoteTable) && table.length <= MAX_UPSTREAM_BYTES / 2) matches.push(table);
+    if (matches.length >= 5) break;
+  }
+  return matches;
 }
 
 function findGradeTable(html) {

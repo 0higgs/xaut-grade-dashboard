@@ -53,11 +53,18 @@ globalThis.fetch = async (input, options = {}) => {
     const course = term.endsWith('-1') ? '高等数学' : '大学物理';
     return upstreamResponse(`<table id="dataList"><tr><th>开课学期</th><th>课程编号</th><th>课程名称</th><th>成绩</th><th>学分</th><th>绩点</th></tr><tr><td>${term}</td><td>C001</td><td>${course}</td><td>88</td><td>3</td><td>3.8</td></tr></table>`);
   }
+  if (path === '/jsxsd/xskb/xskb_list.do') {
+    const term = new URLSearchParams(String(options.body || '')).get('xnxq01id') || '2024-2025-1';
+    return upstreamResponse(`<select id="xnxq01id" name="xnxq01id">
+      <option value="2024-2025-1" ${term === '2024-2025-1' ? 'selected' : ''}>2024-2025-1</option>
+      <option value="2024-2025-2" ${term === '2024-2025-2' ? 'selected' : ''}>2024-2025-2</option>
+    </select><table id="kbtable"><tr><th>节次</th><th>星期一</th><th>星期二</th></tr><tr><td>第一节</td><td>高等数学<br>1-16周<br>A101</td><td></td></tr></table><table><tr><th>备注</th></tr><tr><td>未排课课程：大学生劳动教育</td></tr></table>`);
+  }
   throw new Error(`Unexpected upstream request: ${options.method || 'GET'} ${url}`);
 };
 
-function context(path, method = 'GET', { cookie = '', body, origin = 'https://grades.pages.dev' } = {}) {
-  const url = `https://grades.pages.dev/api/${path}`;
+function context(path, method = 'GET', { cookie = '', body, origin = 'https://grades.pages.dev', query = '' } = {}) {
+  const url = `https://grades.pages.dev/api/${path}${query}`;
   const headers = new Headers();
   if (cookie) headers.set('Cookie', cookie);
   if (origin) headers.set('Origin', origin);
@@ -97,7 +104,16 @@ assert.deepEqual(gradeData.terms, ['2024-2025-1', '2024-2025-2']);
 assert.equal(gradeData.pages.length, 2);
 assert.match(gradeData.pages[0].table, /课程名称/);
 
-const logout = await onRequest(context('logout', 'POST', { cookie: cookiePair(grades) }));
+const schedule = await onRequest(context('schedule', 'GET', { cookie: cookiePair(grades), query: '?term=2024-2025-2' }));
+assert.equal(schedule.status, 200);
+const scheduleData = await schedule.json();
+assert.equal(scheduleData.ok, true);
+assert.deepEqual(scheduleData.terms, ['2024-2025-1', '2024-2025-2']);
+assert.equal(scheduleData.selectedTerm, '2024-2025-2');
+assert.equal(scheduleData.tables.length, 2);
+assert.match(scheduleData.tables[0], /星期一/);
+
+const logout = await onRequest(context('logout', 'POST', { cookie: cookiePair(schedule) }));
 assert.equal(logout.status, 200);
 assert.match(logout.headers.get('set-cookie'), /Max-Age=0/);
 
@@ -117,4 +133,4 @@ const crossOrigin = await onRequest(context('login', 'POST', {
 }));
 assert.equal(crossOrigin.status, 403);
 
-console.log('API tests passed: captcha, encrypted session, login, all terms, logout, errors, origin check');
+console.log('API tests passed: captcha, encrypted session, login, grades, timetable terms, logout, errors, origin check');

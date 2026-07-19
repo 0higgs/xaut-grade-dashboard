@@ -27,10 +27,13 @@ const injectedTest = `<script>
   let attempts=0;
   const timer=setInterval(()=>{
     const rows=document.querySelectorAll('#gradeBody tr').length;
-    if(rows===2){
+    const scheduleRows=document.querySelectorAll('#scheduleTableWrap .schedule-table tr').length;
+    if(rows===2&&scheduleRows===2){
       clearInterval(timer);
+      document.querySelector('.mobile-nav [data-view="schedule"]').click();
+      const scheduleDisplay=getComputedStyle(document.querySelector('#scheduleView')).display;
       document.querySelector('.mobile-nav [data-view="analysis"]').click();
-      const values=[rows,document.querySelectorAll('#yearFilter option').length,getComputedStyle(document.querySelector('.mobile-nav')).display,getComputedStyle(document.querySelector('#analysisView')).display,document.querySelectorAll('#analysisBody tr').length,document.documentElement.scrollWidth<=window.innerWidth];
+      const values=[rows,document.querySelectorAll('#yearFilter option').length,getComputedStyle(document.querySelector('.mobile-nav')).display,scheduleDisplay,scheduleRows,getComputedStyle(document.querySelector('#analysisView')).display,document.querySelectorAll('#analysisBody tr').length,document.documentElement.scrollWidth<=window.innerWidth];
       document.querySelector('#logoutBtn').click();
       setTimeout(()=>{values.push(document.querySelector('#loginBtn').hidden,document.querySelector('#logoutBtn').hidden);result.textContent='PASS|'+values.join('|')},150);
     }else if(++attempts>40){clearInterval(timer);result.textContent='FAIL|rows='+rows+'|progress='+document.querySelector('#loginProgress').textContent}
@@ -53,6 +56,11 @@ const server = http.createServer(async (req, res) => {
   if (req.url === '/api/grades') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ ok: true, terms: ['2024-2025-1', '2024-2025-2'], pages: tables.map((table, index) => ({ term: `2024-2025-${index + 1}`, table })) }));
+    return;
+  }
+  if (req.url.startsWith('/api/schedule')) {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true, terms: ['2024-2025-1', '2024-2025-2'], selectedTerm: '2024-2025-2', tables: ['<table id="kbtable"><tr><th>节次</th><th>星期一</th><th>星期二</th></tr><tr><td>第一节</td><td>高等数学<br>1-16周<br>A101</td><td></td></tr></table>'] }));
     return;
   }
   if (req.url === '/api/logout' && req.method === 'POST') {
@@ -91,8 +99,8 @@ try {
   assert.equal(exitCode, 0, errors);
   const match = output.match(/<pre id="browser-test-result">([^<]+)<\/pre>/);
   assert.ok(match, 'Browser test did not produce a result');
-  assert.equal(match[1], 'PASS|2|2|flex|block|2|true|false|true');
-  console.log('Browser tests passed: direct login, all grades, year filter, mobile navigation, analysis, logout');
+  assert.equal(match[1], 'PASS|2|2|flex|block|2|block|2|true|false|true');
+  console.log('Browser tests passed: direct login, grades, timetable, term filter, mobile navigation, analysis, logout');
 } finally {
   server.closeAllConnections?.();
   server.close();
