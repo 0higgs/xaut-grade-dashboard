@@ -33,8 +33,9 @@ const injectedTest = `<script>
       document.querySelector('.mobile-nav [data-view="schedule"]').click();
       const scheduleDisplay=getComputedStyle(document.querySelector('#scheduleView')).display;
       const cards=[...document.querySelectorAll('.course-card')],visibleCards=cards.filter(card=>!card.hidden).length,sameCourseColor=cards[0].style.getPropertyValue('--course')===cards[2].style.getPropertyValue('--course'),notesText=document.querySelector('#scheduleNotes').textContent,courseNames=cards.map(card=>card.querySelector('.course-name').textContent);
+      URL.createObjectURL=()=> 'blob:test';URL.revokeObjectURL=()=>{};HTMLAnchorElement.prototype.click=function(){document.body.dataset.icsDownload=this.download};document.querySelector('#scheduleWeekOne').value='2025-03-03';document.querySelector('#scheduleIcsBtn').click();
       document.querySelector('.mobile-nav [data-view="analysis"]').click();
-      const values=[rows,document.querySelectorAll('#yearFilter option').length,getComputedStyle(document.querySelector('.mobile-nav')).display,scheduleDisplay,scheduleRows,cards.length,visibleCards,sameCourseColor,courseNames.includes('大学物理(上)'),courseNames.includes('人工智能探秘'),!courseNames.includes('未命名课程'),document.querySelector('.course-switcher span')?.textContent==='1 / 2',notesText.includes('电子CAE综合实训 · 李老师'),!notesText.includes('有课表课程'),document.querySelector('#scheduleExportBtn')!==null,getComputedStyle(document.querySelector('#analysisView')).display,document.querySelectorAll('#analysisBody tr').length,document.documentElement.scrollWidth<=window.innerWidth];
+      const values=[rows,document.querySelectorAll('#yearFilter option').length,getComputedStyle(document.querySelector('.mobile-nav')).display,scheduleDisplay,scheduleRows,cards.length,visibleCards,sameCourseColor,courseNames.includes('大学物理(上)'),courseNames.includes('人工智能探秘'),!courseNames.includes('未命名课程'),document.querySelectorAll('.two-courses .course-card').length===2,document.querySelectorAll('.single-course .course-card').length===1,document.querySelector('.course-switcher')===null,document.body.dataset.icsDownload?.endsWith('.ics'),document.querySelector('#scheduleWeekOne').value==='2025-03-03',notesText.includes('电子CAE综合实训 · 李老师'),!notesText.includes('有课表课程'),document.querySelector('#scheduleExportBtn')!==null,getComputedStyle(document.querySelector('#analysisView')).display,document.querySelectorAll('#analysisBody tr').length,document.documentElement.scrollWidth<=window.innerWidth];
       document.querySelector('#logoutBtn').click();
       setTimeout(()=>{values.push(document.querySelector('#loginBtn').hidden,document.querySelector('#logoutBtn').hidden);result.textContent='PASS|'+values.join('|')},150);
     }else if(++attempts>40){clearInterval(timer);result.textContent='FAIL|rows='+rows+'|progress='+document.querySelector('#loginProgress').textContent}
@@ -100,8 +101,8 @@ try {
   assert.equal(exitCode, 0, errors);
   const match = output.match(/<pre id="browser-test-result">([^<]+)<\/pre>/);
   assert.ok(match, 'Browser test did not produce a result');
-  assert.equal(match[1], 'PASS|2|2|flex|block|2|3|2|true|true|true|true|true|true|true|true|block|2|true|false|true');
-  console.log('Browser tests passed: timetable cards, stable colors, compact conflicts, clean notes, PDF export, mobile navigation');
+  assert.equal(match[1], 'PASS|2|2|flex|block|2|3|3|true|true|true|true|true|true|true|true|true|true|true|true|block|2|true|false|true');
+  console.log('Browser tests passed: full single cards, ordered double cards, ICS download, clean notes, PDF export, mobile navigation');
 } finally {
   server.closeAllConnections?.();
   server.close();
