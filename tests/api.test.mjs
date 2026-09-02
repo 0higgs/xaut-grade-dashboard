@@ -6,7 +6,7 @@ const { onRequest } = await import(`data:text/javascript;base64,${Buffer.from(fu
 
 const env = {
   SESSION_SECRET: '0123456789abcdef'.repeat(4),
-  UPSTREAM_ORIGIN: 'https://jwgl.xaut.edu.cn'
+  UPSTREAM_ORIGIN: 'http://jwgl.xaut.edu.cn'
 };
 let loginShouldFail = false;
 let lastLoginBody = '';
@@ -133,5 +133,12 @@ const crossOrigin = await onRequest(context('login', 'POST', {
   body: { account: 'a', password: 'b', captcha: 'c' }
 }));
 assert.equal(crossOrigin.status, 403);
+
+const forbiddenPlaintextOrigin = await onRequest({
+  ...context('captcha'),
+  env: { ...env, UPSTREAM_ORIGIN: 'http://evil.example' }
+});
+assert.equal(forbiddenPlaintextOrigin.status, 500);
+assert.match((await forbiddenPlaintextOrigin.json()).error, /临时 HTTP 仅允许学校官方教务域名/);
 
 console.log('API tests passed: captcha, encrypted session, login, grades, timetable terms, logout, errors, origin check');
