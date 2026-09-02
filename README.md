@@ -13,6 +13,11 @@
 - 账号和密码不写入数据库或浏览器存储
 - 上游会话使用 AES-256-GCM 加密，并通过短时 `HttpOnly` Cookie 保存
 
+> 临时兼容说明（2026-09-02）：学校 `jwgl.xaut.edu.cn` 的 HTTPS 证书已于
+> 2026-08-18 过期，Pages Functions 暂时使用学校公开的 HTTP 教务入口。
+> HTTP 例外在代码中只允许该官方主机；学校续签后应立即把
+> `DEFAULT_UPSTREAM` 和 `wrangler.jsonc` 中的 `UPSTREAM_ORIGIN` 恢复为 HTTPS。
+
 ## 架构
 
 - `index.html`：静态单页应用

@@ -2,8 +2,8 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "xaut-grade-dashboard",
   "pages_build_output_dir": "public",
-  "compatibility_date": "2026-07-19",
+  "compatibility_date": "2026-09-02",
   "vars": {
-    "UPSTREAM_ORIGIN": "https://jwgl.xaut.edu.cn"
+    "UPSTREAM_ORIGIN": "http://jwgl.xaut.edu.cn"
   }
 }
