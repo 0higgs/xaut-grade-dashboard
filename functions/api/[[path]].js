@@ -30,6 +30,9 @@ export async function onRequest(context) {
     if (action === 'schedule' && request.method === 'GET') {
       return await handleSchedule(request, env);
     }
+    if (action === 'week-schedule' && request.method === 'GET') {
+      return await handleWeekSchedule(request, env);
+    }
     if (action === 'logout' && request.method === 'POST') {
       assertSameOrigin(request);
       return jsonResponse({ ok: true }, 200, {
@@ -205,6 +208,28 @@ async function handleSchedule(request, env) {
   });
 }
 
+async function handleWeekSchedule(request, env) {
+  const state = await requireSession(request, env);
+  const result = await upstreamRequest('/jsxsd/framework/xsdPerson_10700.htmlx', {
+    method: 'GET',
+    headers: { Accept: 'text/html,application/xhtml+xml' }
+  }, state.cookies, env);
+  const html = await result.text();
+  if (isLoginPage(html)) throw httpError(401, '登录会话已失效，请重新登录');
+
+  const schedule = parseWeekSchedule(html);
+  if (!schedule.selectedDate) {
+    throw httpError(502, '教务系统没有返回可识别的本周课表');
+  }
+  const token = await encryptSession({
+    cookies: state.cookies,
+    exp: Date.now() + SESSION_TTL_SECONDS * 1000
+  }, env);
+  return jsonResponse({ ok: true, ...schedule }, 200, {
+    'Set-Cookie': sessionCookie(token, request)
+  });
+}
+
 async function upstreamRequest(path, options, jar, env) {
   let url = new URL(path, upstreamOrigin(env));
   let method = options.method || 'GET';
@@ -303,6 +328,94 @@ function parseSelectedScheduleTerm(html) {
     || select.match(/<option\b[^>]*\bselected(?:=["'][^"']*["'])?[^>]*value=["']([^"']+)["'][^>]*>/i)?.[1]
     || '';
   return decodeHtml(selected).trim();
+}
+
+function parseWeekSchedule(html) {
+  const dateTag = html.match(/<input\b[^>]*\bid=["']xzrq["'][^>]*>/i)?.[0] || '';
+  const selectedDate = decodeHtml(dateTag.match(/\bvalue=["']([^"']+)["']/i)?.[1] || '').trim();
+  const currentWeek = Number(html.match(/\bvar\s+dqzc\s*=\s*["'](\d+)["']/i)?.[1]
+    || html.match(/id=["']showzc["'][^>]*>[\s\S]*?第\s*(\d+)\s*周/i)?.[1]
+    || 0);
+  const totalWeeks = Number(html.match(/第\s*\d+\s*周\s*\/\s*(\d+)\s*周/i)?.[1]
+    || Math.max(0, ...[...html.matchAll(/<option\b[^>]*value=["'](\d+)["'][^>]*>\s*第\s*\d+\s*周/gi)].map(match => Number(match[1]))));
+  const dates = weekDatesFrom(selectedDate);
+  const slots = [];
+  for (const match of html.matchAll(/<li\b[^>]*class=["'][^"']*\brow-one\b[^"']*["'][^>]*>[\s\S]*?<h5[^>]*>([\s\S]*?)<\/h5>[\s\S]*?(\d{2}:\d{2})\s*[～~—-]\s*(\d{2}:\d{2})[\s\S]*?<\/li>/gi)) {
+    slots.push({
+      label: stripHtml(match[1]),
+      startTime: match[2],
+      endTime: match[3]
+    });
+  }
+
+  const starts = [];
+  for (const match of html.matchAll(/<div\b[^>]*class=["']([^"']*)["'][^>]*>/gi)) {
+    const classes = match[1].split(/\s+/);
+    if (classes.includes('table-class')) starts.push({ index: match.index, tag: match[0], classes });
+  }
+  const events = [];
+  for (let index = 0; index < starts.length && events.length < 100; index++) {
+    const entry = starts[index];
+    const block = html.slice(entry.index, starts[index + 1]?.index || html.length);
+    const dayIndex = Number(entry.classes.find(value => /^day[0-6]$/.test(value))?.slice(3));
+    const slotIndex = Number(entry.tag.match(/top\s*:\s*calc\s*\(\(\s*(\d+)\s*\*\s*95px/i)?.[1]);
+    const slotSpan = Math.max(1, Number(entry.tag.match(/height\s*:\s*calc\s*\(\s*(\d+)\s*\*\s*95px/i)?.[1]) || 1);
+    const name = stripHtml(block.match(/<h4[^>]*>([\s\S]*?)<\/h4>/i)?.[1] || '');
+    const slot = slots[slotIndex];
+    const lastSlot = slots[Math.min(slotIndex + slotSpan - 1, slots.length - 1)] || slot;
+    if (!name || !Number.isInteger(dayIndex) || !slot) continue;
+    events.push({
+      name,
+      teacher: labeledHtmlText(block, '教师'),
+      room: labeledHtmlText(block, '地点') || labeledHtmlText(block, '教室'),
+      weeks: labeledHtmlText(block, '周次'),
+      sections: labeledHtmlText(block, '节次'),
+      className: labeledHtmlText(block, '班级'),
+      nature: labeledHtmlText(block, '课程性质'),
+      credit: labeledHtmlText(block, '学分'),
+      dayIndex,
+      date: dates[dayIndex] || '',
+      slotLabel: slot.label,
+      startTime: slot.startTime,
+      endTime: lastSlot?.endTime || slot.endTime
+    });
+  }
+
+  const noteBlock = html.match(/课表备注[\s\S]*?<ul[^>]*>[\s\S]*?<h5[^>]*>\s*备注\s*<\/h5>[\s\S]*?<li[^>]*>([\s\S]*?)<\/li>/i)?.[1] || '';
+  return {
+    selectedDate,
+    currentWeek,
+    totalWeeks,
+    dates,
+    events,
+    note: stripHtml(noteBlock)
+  };
+}
+
+function weekDatesFrom(value) {
+  if (!/^20\d{2}-\d{2}-\d{2}$/.test(value)) return [];
+  const [year, month, day] = value.split('-').map(Number);
+  const selected = new Date(Date.UTC(year, month - 1, day));
+  if (Number.isNaN(selected.getTime())) return [];
+  const mondayOffset = (selected.getUTCDay() + 6) % 7;
+  selected.setUTCDate(selected.getUTCDate() - mondayOffset);
+  return Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(selected);
+    date.setUTCDate(selected.getUTCDate() + index);
+    return date.toISOString().slice(0, 10);
+  });
+}
+
+function labeledHtmlText(html, label) {
+  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = html.match(new RegExp(`<(?:li|p)[^>]*>\\s*${escaped}\\s*[:：]\\s*([\\s\\S]*?)<\\/(?:li|p)>`, 'i'));
+  return stripHtml(match?.[1] || '');
+}
+
+function stripHtml(value) {
+  return decodeHtml(String(value || '').replace(/<br\s*\/?\s*>/gi, ' ').replace(/<[^>]+>/g, ' '))
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function findScheduleTables(html) {
