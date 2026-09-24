@@ -60,6 +60,18 @@ globalThis.fetch = async (input, options = {}) => {
       <option value="2024-2025-2" ${term === '2024-2025-2' ? 'selected' : ''}>2024-2025-2</option>
     </select><table id="kbtable"><tr><th>节次</th><th>星期一</th><th>星期二</th></tr><tr><td>第一节</td><td>高等数学<br>1-16周<br>A101</td><td></td></tr></table><table><tr><th>备注</th></tr><tr><td>未排课课程：大学生劳动教育</td></tr></table>`);
   }
+  if (path === '/jsxsd/framework/xsdPerson_10700.htmlx') {
+    return upstreamResponse(`<input id="xzrq" value="2026-09-24">
+      <span id="showzc">第1周/26周</span><select id="xkzc"><option value="1">第1周</option><option value="26">第26周</option></select>
+      <div class="table-body">
+        <ul><li class="row-one"><h5>第一大节</h5><span>08:00～09:50</span></li></ul>
+        <ul><li class="row-one"><h5>第二大节</h5><span>10:10～12:00</span></li></ul>
+        <div class="table-class div-context day3 xqcolor0" style="height: calc(1 * 95px - 4px);top: calc((0 * 95px) + 2px);">
+          <h4>概率论与数理统计</h4><ul><li>周次:第2-12周</li><li>地点:综南220</li><li>教师:肖燕婷</li></ul>
+          <div class="suspension-table-class"><p>学分：3学分</p><p>课程性质：专业基础课</p><p>节次：01-02节</p><p>班级：电子H班</p></div>
+        </div>
+      </div><script>var dqzc = '4';</script>`);
+  }
   throw new Error(`Unexpected upstream request: ${options.method || 'GET'} ${url}`);
 };
 
@@ -114,7 +126,20 @@ assert.equal(scheduleData.tables.length, 2);
 assert.match(scheduleData.tables[0], /星期一/);
 assert.match(scheduleData.page, /id="kbtable"/);
 
-const logout = await onRequest(context('logout', 'POST', { cookie: cookiePair(schedule) }));
+const weekSchedule = await onRequest(context('week-schedule', 'GET', { cookie: cookiePair(schedule) }));
+assert.equal(weekSchedule.status, 200);
+const weekScheduleData = await weekSchedule.json();
+assert.equal(weekScheduleData.currentWeek, 4);
+assert.equal(weekScheduleData.totalWeeks, 26);
+assert.deepEqual(weekScheduleData.dates, ['2026-09-21', '2026-09-22', '2026-09-23', '2026-09-24', '2026-09-25', '2026-09-26', '2026-09-27']);
+assert.equal(weekScheduleData.events.length, 1);
+assert.deepEqual(weekScheduleData.events[0], {
+  name: '概率论与数理统计', teacher: '肖燕婷', room: '综南220', weeks: '第2-12周', sections: '01-02节',
+  className: '电子H班', nature: '专业基础课', credit: '3学分', dayIndex: 3, date: '2026-09-24',
+  slotLabel: '第一大节', startTime: '08:00', endTime: '09:50'
+});
+
+const logout = await onRequest(context('logout', 'POST', { cookie: cookiePair(weekSchedule) }));
 assert.equal(logout.status, 200);
 assert.match(logout.headers.get('set-cookie'), /Max-Age=0/);
 
@@ -141,4 +166,4 @@ const forbiddenPlaintextOrigin = await onRequest({
 assert.equal(forbiddenPlaintextOrigin.status, 500);
 assert.match((await forbiddenPlaintextOrigin.json()).error, /临时 HTTP 仅允许学校官方教务域名/);
 
-console.log('API tests passed: captcha, encrypted session, login, grades, timetable terms, logout, errors, origin check');
+console.log('API tests passed: captcha, encrypted session, login, grades, semester and official weekly schedules, logout, errors, origin check');
