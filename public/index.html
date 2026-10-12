@@ -42,7 +42,7 @@
       <div class="side-tip"><strong>如何快速获取？</strong>点击页面右上角“登录并自动获取”，完成验证码后会自动遍历全部学期，无需进入教务系统成绩页面。</div>
     </aside>
     <main>
-      <section class="hero" id="heroSection"><div><h2>你好，开始整理你的成绩吧</h2><p>选择学年后，统计卡片与课程明细会同步更新。</p></div><div class="hero-actions"><button class="btn btn-ghost" id="sampleBtn">载入演示数据</button><button class="btn btn-primary" id="importBtn">＋ 获取 / 导入成绩</button></div></section>
+      <section class="hero" id="heroSection"><div><h2>你好，开始整理你的成绩吧</h2><p>选择学年后，统计卡片与课程明细会同步更新。</p></div><div class="hero-actions"><button class="btn btn-primary" id="importBtn">＋ 获取 / 导入成绩</button></div></section>
       <section class="filters" id="filterSection">
         <div class="field"><label for="yearFilter">展示学年</label><select id="yearFilter" class="control"><option value="all">全部学年</option></select></div>
         <div class="field"><label for="termFilter">学期</label><select id="termFilter" class="control"><option value="all">全部学期</option><option value="1">第一学期</option><option value="2">第二学期</option><option value="3">小学期</option></select></div>
@@ -223,7 +223,6 @@
   $('#parseBtn').onclick=()=>{try{const rows=parseText($('#pasteInput').value);if(!rows.length)throw new Error('未识别到课程数据');mergeRows(rows);$('#pasteInput').value='';closeModal('importModal')}catch(e){toast(e.message)}};
   $('#fileInput').onchange=e=>{const file=e.target.files[0];if(!file)return;const reader=new FileReader();reader.onload=()=>{try{mergeRows(parseText(reader.result));closeModal('importModal')}catch(err){toast(err.message)}};reader.readAsText(file,'UTF-8');e.target.value=''};
   $('#openSystemBtn').onclick=()=>window.open('https://jwgl.xaut.edu.cn/jsxsd/','_blank','noopener');
-  $('#sampleBtn').onclick=()=>{if(grades.length&&!confirm('演示数据将与现有数据合并，是否继续？'))return;mergeRows([{year:'2024-2025',term:'1',code:'MATH1001',name:'高等数学（一）',nature:'必修',credit:5,score:'88',gpa:null},{year:'2024-2025',term:'1',code:'ENG1001',name:'大学英语（一）',nature:'必修',credit:3,score:'92',gpa:null},{year:'2024-2025',term:'2',code:'PHY1002',name:'大学物理',nature:'必修',credit:4,score:'81',gpa:null},{year:'2024-2025',term:'2',code:'ART2001',name:'艺术鉴赏',nature:'选修',credit:2,score:'优秀',gpa:null},{year:'2025-2026',term:'1',code:'CS2101',name:'数据结构',nature:'必修',credit:4,score:'86',gpa:null},{year:'2025-2026',term:'1',code:'PE2101',name:'大学体育',nature:'必修',credit:1,score:'78',gpa:null}].map(normalize))};
   $('#clearBtn').onclick=()=>{if(!grades.length)return;if(confirm('确定清空全部成绩吗？此操作不可撤销。')){grades=[];save();render();toast('成绩数据已清空')}};
   $('#gradeBody').onclick=e=>{const id=e.target.dataset.id;if(!id)return;if(e.target.classList.contains('edit'))edit(grades.find(x=>x.id===id));if(e.target.classList.contains('del')&&confirm('删除这门课程？')){grades=grades.filter(x=>x.id!==id);save();render();toast('已删除')}};
   $('#editForm').onsubmit=e=>{e.preventDefault();const row=normalize({id:$('#editId').value||uid(),year:$('#editYear').value,term:$('#editTerm').value,code:$('#editCode').value,name:$('#editName').value,nature:$('#editNature').value,credit:$('#editCredit').value,score:$('#editScore').value,gpa:$('#editGpa').value});const idx=grades.findIndex(x=>x.id===row.id);if(idx>=0)grades[idx]=row;else grades.push(row);save();render();closeModal('editModal');toast('课程已保存')};
