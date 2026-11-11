@@ -18,6 +18,7 @@ const tables = [
 
 const injectedTest = `<script>
 (()=>{
+  const RealDate=Date,fixedNow='2026-09-24T08:30:00+08:00';window.Date=class extends RealDate{constructor(...args){super(...(args.length?args:[fixedNow]))}static now(){return new RealDate(fixedNow).getTime()}static parse(value){return RealDate.parse(value)}static UTC(...args){return RealDate.UTC(...args)}};
   const result=document.createElement('pre');result.id='browser-test-result';document.body.appendChild(result);
   document.querySelector('#loginBtn').click();
   document.querySelector('#loginAccount').value='20250001';
@@ -27,8 +28,8 @@ const injectedTest = `<script>
   let attempts=0;
   const timer=setInterval(()=>{
     const rows=document.querySelectorAll('#gradeBody tr').length;
-    const scheduleRows=document.querySelectorAll('#scheduleTableWrap .schedule-table tr').length,weekCards=document.querySelectorAll('#weekDayGrid .week-course-card').length;
-    if(rows===2&&scheduleRows===2&&weekCards===3){
+    const scheduleRows=document.querySelectorAll('#scheduleTableWrap .schedule-table tr').length,weekCards=document.querySelectorAll('#weekDayGrid .week-course-card').length,planRows=document.querySelectorAll('#planBody tr').length;
+    if(rows===2&&scheduleRows===2&&weekCards===3&&planRows===3){
       clearInterval(timer);
       document.querySelector('.mobile-nav [data-view="schedule"]').click();
       const scheduleDisplay=getComputedStyle(document.querySelector('#scheduleView')).display;
@@ -36,8 +37,10 @@ const injectedTest = `<script>
       URL.createObjectURL=()=> 'blob:test';URL.revokeObjectURL=()=>{};HTMLAnchorElement.prototype.click=function(){document.body.dataset.icsDownload=this.download};document.querySelector('#scheduleWeekOne').value='2025-03-03';document.querySelector('#scheduleIcsBtn').click();
       document.querySelector('[data-schedule-mode="week"]').click();
       const weeklyValues=[document.querySelector('#scheduleWeekPane').hidden,document.querySelector('#scheduleSemesterPane').hidden,document.querySelector('#currentCourseName').textContent,document.querySelector('#nextCourseName').textContent,document.querySelectorAll('#todayCourseList .week-course-card').length,document.querySelectorAll('#weekDayGrid .week-day').length,document.querySelector('#weekCourseCount').textContent,document.querySelector('#weekScheduleTitle').textContent,document.querySelector('#weekScheduleNote').textContent];
+      document.querySelector('.mobile-nav [data-view="plan"]').click();
+      const planValues=[getComputedStyle(document.querySelector('#planView')).display,planRows,document.querySelectorAll('#planBody .plan-progress.done').length,document.querySelector('#planCourseCount').textContent,document.querySelector('#planTotalCredits').textContent,document.querySelector('#planStatus').textContent];
       document.querySelector('.mobile-nav [data-view="analysis"]').click();
-      const values=[rows,document.querySelectorAll('#yearFilter option').length,getComputedStyle(document.querySelector('.mobile-nav')).display,scheduleDisplay,scheduleRows,cards.length,visibleCards,sameCourseColor,courseNames.includes('大学物理(上)'),courseNames.includes('人工智能探秘'),!courseNames.includes('未命名课程'),document.querySelectorAll('.two-courses .course-card').length===2,document.querySelectorAll('.single-course .course-card').length===1,document.querySelector('.course-switcher')===null,document.body.dataset.icsDownload?.endsWith('.ics'),document.querySelector('#scheduleWeekOne').value==='2025-03-03',notesText.includes('电子CAE综合实训 · 李老师'),!notesText.includes('有课表课程'),document.querySelector('#scheduleExportBtn')!==null,...weeklyValues,getComputedStyle(document.querySelector('#analysisView')).display,document.querySelectorAll('#analysisBody tr').length,document.documentElement.scrollWidth<=window.innerWidth];
+      const values=[rows,document.querySelectorAll('#yearFilter option').length,getComputedStyle(document.querySelector('.mobile-nav')).display,scheduleDisplay,scheduleRows,cards.length,visibleCards,sameCourseColor,courseNames.includes('大学物理(上)'),courseNames.includes('人工智能探秘'),!courseNames.includes('未命名课程'),document.querySelectorAll('.two-courses .course-card').length===2,document.querySelectorAll('.single-course .course-card').length===1,document.querySelector('.course-switcher')===null,document.body.dataset.icsDownload?.endsWith('.ics'),document.querySelector('#scheduleWeekOne').value==='2025-03-03',notesText.includes('电子CAE综合实训 · 李老师'),!notesText.includes('有课表课程'),document.querySelector('#scheduleExportBtn')!==null,...weeklyValues,...planValues,getComputedStyle(document.querySelector('#analysisView')).display,document.querySelectorAll('#analysisBody tr').length,document.documentElement.scrollWidth<=window.innerWidth];
       document.querySelector('#logoutBtn').click();
       setTimeout(()=>{values.push(document.querySelector('#loginBtn').hidden,document.querySelector('#logoutBtn').hidden);result.textContent='PASS|'+values.join('|')},150);
     }else if(++attempts>40){clearInterval(timer);result.textContent='FAIL|rows='+rows+'|progress='+document.querySelector('#loginProgress').textContent}
@@ -73,6 +76,15 @@ const server = http.createServer(async (req, res) => {
       { name: '大学物理(下)', teacher: '解光勇', room: '综南220', weeks: '第1-14周', sections: '01-02节', dayIndex: 0, date: '2026-09-21', startTime: '08:00', endTime: '09:50' },
       { name: '概率论与数理统计', teacher: '肖燕婷', room: '综南220', weeks: '第2-12周', sections: '01-02节', dayIndex: 3, date: '2026-09-24', startTime: '00:00', endTime: '23:59' },
       { name: '模拟电子技术', teacher: '谌娟', room: '综南220', weeks: '第2-15周', sections: '03-04节', dayIndex: 4, date: '2026-09-25', startTime: '10:10', endTime: '12:00' }
+    ] }));
+    return;
+  }
+  if (req.url === '/api/plan') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true, items: [
+      { index: 1, term: '2024-2025-1', code: 'C001', name: '高等数学', department: '理学院', credit: 3, hours: 48, assessment: '考试', attribute: '公共基础课', nature: '必修课', exam: '是' },
+      { index: 2, term: '2025-2026-1', code: 'C002', name: '模拟电子技术', department: '自动化学院', credit: 4, hours: 64, assessment: '考试', attribute: '专业课', nature: '必修课', exam: '是' },
+      { index: 3, term: '2025-2026-2', code: 'C003', name: '集成电路可靠性', department: '自动化学院', credit: 2, hours: 32, assessment: '考查', attribute: '选修课', nature: '院级选修课', exam: '是' }
     ] }));
     return;
   }
@@ -113,8 +125,8 @@ try {
   assert.equal(exitCode, 0, errors);
   const match = output.match(/<pre id="browser-test-result">([^<]+)<\/pre>/);
   assert.ok(match, `Browser test did not produce a result\n${errors}\n${output.slice(0, 1000)}`);
-  assert.equal(match[1], 'PASS|2|2|flex|block|2|3|3|true|true|true|true|true|true|true|true|true|true|true|true|false|true|概率论与数理统计|模拟电子技术|1|7|3 节课|第 4 周课表|备注：创新创业实训 赵老师 4-14周|block|2|true|false|true');
-  console.log('Browser tests passed: semester and weekly schedules, current/next course, ICS/PDF export, mobile navigation');
+  assert.equal(match[1], 'PASS|2|2|flex|block|2|3|3|true|true|true|true|true|true|true|true|true|true|true|true|false|true|概率论与数理统计|模拟电子技术|1|7|3 节课|第 4 周课表|备注：创新创业实训 赵老师 4-14周|block|3|1|3|9.0|已获取 3 门计划课程|block|2|true|false|true');
+  console.log('Browser tests passed: grades, semester and weekly schedules, training plan, current/next course, exports, mobile navigation');
 } finally {
   server.closeAllConnections?.();
   server.close();
