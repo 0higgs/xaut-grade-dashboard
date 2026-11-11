@@ -72,6 +72,13 @@ globalThis.fetch = async (input, options = {}) => {
         </div>
       </div><script>var dqzc = '4';</script>`);
   }
+  if (path === '/jsxsd/pyfa/pyfa_query') {
+    return upstreamResponse(`<div class="title">执行计划</div><table id="dataList">
+      <tr><th>序号</th><th>开课学期</th><th>课程编号</th><th>课程名称</th><th>开课单位</th><th>学分</th><th>总学时</th><th>考核方式</th><th>课程属性</th><th>课程性质</th><th>是否考试</th></tr>
+      <tr><td>1</td><td>2025-2026-1</td><td>22100040</td><td>高等数学（上）</td><td>国际工学院</td><td>5</td><td>80</td><td>考试</td><td>专业基础课</td><td>必修课</td><td>是</td></tr>
+      <tr><td>2</td><td>2028-2029-1</td><td>04192040</td><td>集成电路可靠性</td><td>自动化与信息工程学院</td><td>2</td><td>32</td><td>考试</td><td>选修课</td><td>院级选修课</td><td>是</td></tr>
+    </table>`);
+  }
   throw new Error(`Unexpected upstream request: ${options.method || 'GET'} ${url}`);
 };
 
@@ -139,7 +146,18 @@ assert.deepEqual(weekScheduleData.events[0], {
   slotLabel: '第一大节', startTime: '08:00', endTime: '09:50'
 });
 
-const logout = await onRequest(context('logout', 'POST', { cookie: cookiePair(weekSchedule) }));
+const plan = await onRequest(context('plan', 'GET', { cookie: cookiePair(weekSchedule) }));
+assert.equal(plan.status, 200);
+const planData = await plan.json();
+assert.equal(planData.ok, true);
+assert.equal(planData.items.length, 2);
+assert.deepEqual(planData.items[0], {
+  index: 1, term: '2025-2026-1', code: '22100040', name: '高等数学（上）', department: '国际工学院',
+  credit: 5, hours: 80, assessment: '考试', attribute: '专业基础课', nature: '必修课', exam: '是'
+});
+assert.equal(planData.items[1].nature, '院级选修课');
+
+const logout = await onRequest(context('logout', 'POST', { cookie: cookiePair(plan) }));
 assert.equal(logout.status, 200);
 assert.match(logout.headers.get('set-cookie'), /Max-Age=0/);
 
@@ -166,4 +184,4 @@ const forbiddenPlaintextOrigin = await onRequest({
 assert.equal(forbiddenPlaintextOrigin.status, 500);
 assert.match((await forbiddenPlaintextOrigin.json()).error, /临时 HTTP 仅允许学校官方教务域名/);
 
-console.log('API tests passed: captcha, encrypted session, login, grades, semester and official weekly schedules, logout, errors, origin check');
+console.log('API tests passed: captcha, encrypted session, login, grades, semester and weekly schedules, training plan, logout, errors, origin check');
