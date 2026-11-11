@@ -87,6 +87,13 @@ globalThis.fetch = async (input, options = {}) => {
   }
   if (path === '/jsxsd/xsks/xsksap_list') {
     const term = url.searchParams.get('xnxqid');
+    if (term === '2025-2026-2') {
+      return upstreamResponse(`<table id="dataList" class="displayTable">
+        <tr><th>序号</th><th>校区</th><th>考试校区</th><th>考试场次</th><th>课程编号</th><th>课程名称</th><th>授课教师</th><th>考试时间</th><th>考场</th><th>座位号</th><th>准考证号</th><th>备注</th><th>操作</th></tr>
+        <tr><td>1</td><td>曲江校区(西区)</td><td>曲江校区(西区)</td><td></td><td>22100300</td><td>复变函数与积分变换</td><td>李灿</td><td>2026-11-10 14:00-16:00</td><td>综南220</td><td>18</td><td>20261110001</td><td></td><td></td></tr>
+        <tr><td>2</td><td>金花校区</td><td>金花校区</td><td>第2场</td><td>11100580</td><td>形势与政策2</td><td>田老师</td><td></td><td></td><td></td><td></td><td>时间另行通知</td><td></td></tr>
+      </table>`, { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
+    }
     return upstreamResponse(JSON.stringify({ code: 0, count: 2, data: [
       { xnxqid: term, kch: '22100040', kskcmc: '高等数学（下）', kssj: '2026-06-18 08:30~10:30', js_mc: '综南224', ksxq: '金花校区', jsxm: '王老师', zwh: '18', ksccmc: '第1场', kslbmc: '期末考试', kw0410id: 'EXAM-1' },
       { xnxqid: term, kch: '11100580', kskcmc: '形势与政策2', kssj: '', js_mc: '', ksxq: '', jsxm: '田老师', zwh: '', ksccmc: '', kslbmc: '随堂考试', bz: '时间另行通知' }
@@ -178,14 +185,25 @@ assert.deepEqual(examData.terms, ['2025-2026-1', '2025-2026-2']);
 assert.equal(examData.selectedTerm, '2025-2026-2');
 assert.equal(examData.items.length, 2);
 assert.deepEqual(examData.items[0], {
-  index: 1, term: '2025-2026-2', code: '22100040', name: '高等数学（下）',
-  timeText: '2026-06-18 08:30~10:30', date: '2026-06-18', startTime: '08:30', endTime: '10:30',
-  room: '综南224', campus: '金花校区', teacher: '王老师', seat: '18', session: '第1场',
-  type: '期末考试', note: '', detailId: 'EXAM-1'
+  index: 1, term: '2025-2026-2', code: '22100300', name: '复变函数与积分变换',
+  timeText: '2026-11-10 14:00-16:00', date: '2026-11-10', startTime: '14:00', endTime: '16:00',
+  room: '综南220', campus: '曲江校区(西区)', teacher: '李灿', seat: '18', admissionNo: '20261110001',
+  session: '', type: '', note: '', detailId: ''
 });
 assert.equal(examData.items[1].note, '时间另行通知');
 
-const logout = await onRequest(context('logout', 'POST', { cookie: cookiePair(exams) }));
+const jsonExams = await onRequest(context('exams', 'GET', { cookie: cookiePair(exams), query: '?term=2025-2026-1' }));
+assert.equal(jsonExams.status, 200);
+const jsonExamData = await jsonExams.json();
+assert.equal(jsonExamData.items.length, 2);
+assert.deepEqual(jsonExamData.items[0], {
+  index: 1, term: '2025-2026-1', code: '22100040', name: '高等数学（下）',
+  timeText: '2026-06-18 08:30~10:30', date: '2026-06-18', startTime: '08:30', endTime: '10:30',
+  room: '综南224', campus: '金花校区', teacher: '王老师', seat: '18', admissionNo: '', session: '第1场',
+  type: '期末考试', note: '', detailId: 'EXAM-1'
+});
+
+const logout = await onRequest(context('logout', 'POST', { cookie: cookiePair(jsonExams) }));
 assert.equal(logout.status, 200);
 assert.match(logout.headers.get('set-cookie'), /Max-Age=0/);
 
