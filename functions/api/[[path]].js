@@ -33,6 +33,9 @@ export async function onRequest(context) {
     if (action === 'week-schedule' && request.method === 'GET') {
       return await handleWeekSchedule(request, env);
     }
+    if (action === 'plan' && request.method === 'GET') {
+      return await handlePlan(request, env);
+    }
     if (action === 'logout' && request.method === 'POST') {
       assertSameOrigin(request);
       return jsonResponse({ ok: true }, 200, {
@@ -230,6 +233,28 @@ async function handleWeekSchedule(request, env) {
   });
 }
 
+async function handlePlan(request, env) {
+  const state = await requireSession(request, env);
+  const result = await upstreamRequest('/jsxsd/pyfa/pyfa_query', {
+    method: 'GET',
+    headers: { Accept: 'text/html,application/xhtml+xml' }
+  }, state.cookies, env);
+  const html = await result.text();
+  if (isLoginPage(html)) throw httpError(401, '登录会话已失效，请重新登录');
+
+  const items = parseTrainingPlan(html);
+  if (!items.length) {
+    throw httpError(502, '教务系统没有返回可识别的执行计划');
+  }
+  const token = await encryptSession({
+    cookies: state.cookies,
+    exp: Date.now() + SESSION_TTL_SECONDS * 1000
+  }, env);
+  return jsonResponse({ ok: true, items }, 200, {
+    'Set-Cookie': sessionCookie(token, request)
+  });
+}
+
 async function upstreamRequest(path, options, jar, env) {
   let url = new URL(path, upstreamOrigin(env));
   let method = options.method || 'GET';
@@ -390,6 +415,36 @@ function parseWeekSchedule(html) {
     events,
     note: stripHtml(noteBlock)
   };
+}
+
+function parseTrainingPlan(html) {
+  const table = html.match(/<table\b[^>]*\bid=["']dataList["'][^>]*>[\s\S]*?<\/table>/i)?.[0] || '';
+  if (!table || !/开课学期/.test(table) || !/课程名称/.test(table)) return [];
+  const items = [];
+  for (const rowMatch of table.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi)) {
+    const cells = [...rowMatch[1].matchAll(/<t[dh]\b[^>]*>([\s\S]*?)<\/t[dh]>/gi)]
+      .map(match => stripHtml(match[1]));
+    if (cells.length < 11 || !/^\d+$/.test(cells[0]) || !/^20\d{2}-20\d{2}-[123]$/.test(cells[1])) continue;
+    const numeric = value => {
+      const match = String(value || '').replace(',', '.').match(/-?\d+(?:\.\d+)?/);
+      return match ? Number(match[0]) : null;
+    };
+    items.push({
+      index: Number(cells[0]),
+      term: cells[1],
+      code: cells[2],
+      name: cells[3],
+      department: cells[4],
+      credit: numeric(cells[5]),
+      hours: numeric(cells[6]),
+      assessment: cells[7],
+      attribute: cells[8],
+      nature: cells[9],
+      exam: cells[10]
+    });
+    if (items.length >= 300) break;
+  }
+  return items;
 }
 
 function weekDatesFrom(value) {
