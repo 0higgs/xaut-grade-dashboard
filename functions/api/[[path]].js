@@ -527,15 +527,24 @@ function parseExamPayload(text, selectedTerm) {
   try {
     payload = JSON.parse(text);
   } catch {
-    throw httpError(502, '教务系统没有返回可识别的考试安排', false);
+    payload = null;
   }
-  if (payload?.code !== undefined && String(payload.code) !== '0') {
-    throw httpError(502, '教务系统考试安排接口返回异常', false);
+  if (payload !== null) {
+    if (payload?.code !== undefined && String(payload.code) !== '0') {
+      throw httpError(502, '教务系统考试安排接口返回异常', false);
+    }
+    const data = Array.isArray(payload?.data) ? payload.data : [];
+    const count = Math.max(0, Number(payload?.count) || data.length);
+    const items = data.map((row, index) => normalizeExamItem(row, selectedTerm, index)).filter(item => item.name);
+    return { count, items };
   }
-  const data = Array.isArray(payload?.data) ? payload.data : [];
-  const count = Math.max(0, Number(payload?.count) || data.length);
-  const items = data.map((row, index) => normalizeExamItem(row, selectedTerm, index)).filter(item => item.name);
-  return { count, items };
+
+  const table = parseExamTable(text, selectedTerm);
+  if (table) return table;
+  if (/暂无(?:数据|记录|考试)|没有(?:数据|记录)|未查询到/.test(stripHtml(text))) {
+    return { count: 0, items: [] };
+  }
+  throw httpError(502, '教务系统没有返回可识别的考试安排', false);
 }
 
 function normalizeExamItem(row, selectedTerm, index) {
@@ -547,24 +556,75 @@ function normalizeExamItem(row, selectedTerm, index) {
     return '';
   };
   const timeText = value('kssj', 'kssjmc', 'examTime');
-  const timeMatch = timeText.match(/(20\d{2}-\d{2}-\d{2})\s+(\d{1,2}:\d{2})\s*[~～—-]\s*(\d{1,2}:\d{2})/);
+  const time = parseExamTime(timeText);
   return {
     index: index + 1,
     term: value('xnxqid', 'xnxq01id') || selectedTerm,
     code: value('kch', 'kcdm', 'courseCode'),
     name: value('kskcmc', 'kcmc', 'kc_mc', 'courseName'),
     timeText,
-    date: timeMatch?.[1] || '',
-    startTime: timeMatch?.[2]?.padStart(5, '0') || '',
-    endTime: timeMatch?.[3]?.padStart(5, '0') || '',
+    ...time,
     room: value('js_mc', 'ksdd', 'ksjc', 'jsmc', 'room'),
     campus: value('ksxq', 'xqmc', 'campus'),
     teacher: value('jsxm', 'xm', 'teacher'),
     seat: value('zwh', 'seat'),
+    admissionNo: value('zkzh', 'admissionNo'),
     session: value('ksccmc', 'kscc', 'session'),
     type: value('kslbmc', 'kslb', 'kslx', 'ksxz', 'type'),
     note: value('bz', 'bzxx', 'remark'),
     detailId: value('kw0410id')
+  };
+}
+
+function parseExamTable(html, selectedTerm) {
+  const tables = Array.from(String(html).matchAll(/<table\b[^>]*>[\s\S]*?<\/table>/gi), match => match[0]);
+  const table = tables.find(candidate => /\bid=["']dataList["']/i.test(candidate)
+    && /课程名称/.test(candidate) && /考试时间/.test(candidate));
+  if (!table) return null;
+
+  const rows = Array.from(table.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi), match => match[1]);
+  const headerRow = rows.find(row => /<th\b/i.test(row)) || '';
+  const headers = Array.from(headerRow.matchAll(/<th\b[^>]*>([\s\S]*?)<\/th>/gi), match => stripHtml(match[1]));
+  if (!headers.includes('课程名称') || !headers.includes('考试时间')) return null;
+  const column = (cells, label) => {
+    const index = headers.indexOf(label);
+    return index >= 0 ? cells[index] || '' : '';
+  };
+  const items = [];
+  for (const row of rows) {
+    const cells = Array.from(row.matchAll(/<td\b[^>]*>([\s\S]*?)<\/td>/gi), match => stripHtml(match[1]));
+    if (!cells.length) continue;
+    const name = column(cells, '课程名称');
+    if (!name) continue;
+    const timeText = column(cells, '考试时间');
+    items.push({
+      index: Number(column(cells, '序号')) || items.length + 1,
+      term: selectedTerm,
+      code: column(cells, '课程编号'),
+      name,
+      timeText,
+      ...parseExamTime(timeText),
+      room: column(cells, '考场'),
+      campus: column(cells, '考试校区') || column(cells, '校区'),
+      teacher: column(cells, '授课教师'),
+      seat: column(cells, '座位号'),
+      admissionNo: column(cells, '准考证号'),
+      session: column(cells, '考试场次'),
+      type: '',
+      note: column(cells, '备注'),
+      detailId: ''
+    });
+    if (items.length >= 600) break;
+  }
+  return { count: items.length, items };
+}
+
+function parseExamTime(timeText) {
+  const match = String(timeText || '').match(/(20\d{2}-\d{2}-\d{2})\s+(\d{1,2}:\d{2})\s*[~～—–-]\s*(\d{1,2}:\d{2})/);
+  return {
+    date: match?.[1] || '',
+    startTime: match?.[2]?.padStart(5, '0') || '',
+    endTime: match?.[3]?.padStart(5, '0') || ''
   };
 }
 
