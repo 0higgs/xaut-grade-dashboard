@@ -28,8 +28,8 @@ const injectedTest = `<script>
   let attempts=0;
   const timer=setInterval(()=>{
     const rows=document.querySelectorAll('#gradeBody tr').length;
-    const scheduleRows=document.querySelectorAll('#scheduleTableWrap .schedule-table tr').length,weekCards=document.querySelectorAll('#weekDayGrid .week-course-card').length,planRows=document.querySelectorAll('#planBody tr').length;
-    if(rows===2&&scheduleRows===2&&weekCards===3&&planRows===3){
+    const scheduleRows=document.querySelectorAll('#scheduleTableWrap .schedule-table tr').length,weekCards=document.querySelectorAll('#weekDayGrid .week-course-card').length,planRows=document.querySelectorAll('#planBody tr').length,examRows=document.querySelectorAll('#examBody tr').length;
+    if(rows===2&&scheduleRows===2&&weekCards===3&&planRows===3&&examRows===2){
       clearInterval(timer);
       document.querySelector('.mobile-nav [data-view="schedule"]').click();
       const scheduleDisplay=getComputedStyle(document.querySelector('#scheduleView')).display;
@@ -39,8 +39,10 @@ const injectedTest = `<script>
       const weeklyValues=[document.querySelector('#scheduleWeekPane').hidden,document.querySelector('#scheduleSemesterPane').hidden,document.querySelector('#currentCourseName').textContent,document.querySelector('#nextCourseName').textContent,document.querySelectorAll('#todayCourseList .week-course-card').length,document.querySelectorAll('#weekDayGrid .week-day').length,document.querySelector('#weekCourseCount').textContent,document.querySelector('#weekScheduleTitle').textContent,document.querySelector('#weekScheduleNote').textContent];
       document.querySelector('.mobile-nav [data-view="plan"]').click();
       const planValues=[getComputedStyle(document.querySelector('#planView')).display,planRows,document.querySelectorAll('#planBody .plan-progress.done').length,document.querySelector('#planCourseCount').textContent,document.querySelector('#planTotalCredits').textContent,document.querySelector('#planStatus').textContent];
+      document.querySelector('.mobile-nav [data-view="exams"]').click();
+      const examValues=[getComputedStyle(document.querySelector('#examView')).display,examRows,document.querySelector('#examCount').textContent,document.querySelector('#nextExamName').textContent,document.querySelector('#nextExamTime').textContent,document.querySelector('#nextExamCountdown').textContent,document.querySelector('#examStatus').textContent,document.querySelectorAll('#examTerm option').length];
       document.querySelector('.mobile-nav [data-view="analysis"]').click();
-      const values=[rows,document.querySelectorAll('#yearFilter option').length,getComputedStyle(document.querySelector('.mobile-nav')).display,scheduleDisplay,scheduleRows,cards.length,visibleCards,sameCourseColor,courseNames.includes('大学物理(上)'),courseNames.includes('人工智能探秘'),!courseNames.includes('未命名课程'),document.querySelectorAll('.two-courses .course-card').length===2,document.querySelectorAll('.single-course .course-card').length===1,document.querySelector('.course-switcher')===null,document.body.dataset.icsDownload?.endsWith('.ics'),document.querySelector('#scheduleWeekOne').value==='2025-03-03',notesText.includes('电子CAE综合实训 · 李老师'),!notesText.includes('有课表课程'),document.querySelector('#scheduleExportBtn')!==null,...weeklyValues,...planValues,getComputedStyle(document.querySelector('#analysisView')).display,document.querySelectorAll('#analysisBody tr').length,document.documentElement.scrollWidth<=window.innerWidth];
+      const values=[rows,document.querySelectorAll('#yearFilter option').length,getComputedStyle(document.querySelector('.mobile-nav')).display,scheduleDisplay,scheduleRows,cards.length,visibleCards,sameCourseColor,courseNames.includes('大学物理(上)'),courseNames.includes('人工智能探秘'),!courseNames.includes('未命名课程'),document.querySelectorAll('.two-courses .course-card').length===2,document.querySelectorAll('.single-course .course-card').length===1,document.querySelector('.course-switcher')===null,document.body.dataset.icsDownload?.endsWith('.ics'),document.querySelector('#scheduleWeekOne').value==='2025-03-03',notesText.includes('电子CAE综合实训 · 李老师'),!notesText.includes('有课表课程'),document.querySelector('#scheduleExportBtn')!==null,...weeklyValues,...planValues,...examValues,getComputedStyle(document.querySelector('#analysisView')).display,document.querySelectorAll('#analysisBody tr').length,document.documentElement.scrollWidth<=window.innerWidth];
       document.querySelector('#logoutBtn').click();
       setTimeout(()=>{values.push(document.querySelector('#loginBtn').hidden,document.querySelector('#logoutBtn').hidden);result.textContent='PASS|'+values.join('|')},150);
     }else if(++attempts>40){clearInterval(timer);result.textContent='FAIL|rows='+rows+'|progress='+document.querySelector('#loginProgress').textContent}
@@ -88,6 +90,14 @@ const server = http.createServer(async (req, res) => {
     ] }));
     return;
   }
+  if (req.url.startsWith('/api/exams')) {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true, terms: ['2025-2026-1', '2025-2026-2'], selectedTerm: '2025-2026-2', count: 2, items: [
+      { term: '2025-2026-2', code: 'C010', name: '高等数学', timeText: '2026-10-03 08:30~10:30', date: '2026-10-03', startTime: '08:30', endTime: '10:30', room: '综南224', campus: '金花校区', teacher: '王老师', seat: '18', session: '第1场', type: '期末考试', note: '' },
+      { term: '2025-2026-2', code: 'C011', name: '模拟电子技术', timeText: '2026-11-15 14:00~16:00', date: '2026-11-15', startTime: '14:00', endTime: '16:00', room: '综南323', campus: '金花校区', teacher: '谌娟', seat: '26', session: '第2场', type: '期末考试', note: '' }
+    ] }));
+    return;
+  }
   if (req.url === '/api/logout' && req.method === 'POST') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ ok: true }));
@@ -125,8 +135,8 @@ try {
   assert.equal(exitCode, 0, errors);
   const match = output.match(/<pre id="browser-test-result">([^<]+)<\/pre>/);
   assert.ok(match, `Browser test did not produce a result\n${errors}\n${output.slice(0, 1000)}`);
-  assert.equal(match[1], 'PASS|2|2|flex|block|2|3|3|true|true|true|true|true|true|true|true|true|true|true|true|false|true|概率论与数理统计|模拟电子技术|1|7|3 节课|第 4 周课表|备注：创新创业实训 赵老师 4-14周|block|3|1|3|9.0|已获取 3 门计划课程|block|2|true|false|true');
-  console.log('Browser tests passed: grades, semester and weekly schedules, training plan, current/next course, exports, mobile navigation');
+  assert.equal(match[1], 'PASS|2|2|flex|block|2|3|3|true|true|true|true|true|true|true|true|true|true|true|true|false|true|概率论与数理统计|模拟电子技术|1|7|3 节课|第 4 周课表|备注：创新创业实训 赵老师 4-14周|block|3|1|3|9.0|已获取 3 门计划课程|block|2|2|高等数学|2026-10-03 08:30–10:30|9 天 0 小时|已获取 2 门考试|2|block|2|true|false|true');
+  console.log('Browser tests passed: grades, semester and weekly schedules, exams, training plan, current/next course, exports, mobile navigation');
 } finally {
   server.closeAllConnections?.();
   server.close();
