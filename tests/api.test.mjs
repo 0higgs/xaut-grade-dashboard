@@ -79,6 +79,19 @@ globalThis.fetch = async (input, options = {}) => {
       <tr><td>2</td><td>2028-2029-1</td><td>04192040</td><td>集成电路可靠性</td><td>自动化与信息工程学院</td><td>2</td><td>32</td><td>考试</td><td>选修课</td><td>院级选修课</td><td>是</td></tr>
     </table>`);
   }
+  if (path === '/jsxsd/xsks/xsksap_query') {
+    return upstreamResponse(`<select id="xnxqid" name="xnxqid">
+      <option value="2025-2026-1">2025-2026-1</option>
+      <option value="2025-2026-2" selected>2025-2026-2</option>
+    </select><table data-url="/jsxsd/xsks/xsksap_list"></table>`);
+  }
+  if (path === '/jsxsd/xsks/xsksap_list') {
+    const term = url.searchParams.get('xnxqid');
+    return upstreamResponse(JSON.stringify({ code: 0, count: 2, data: [
+      { xnxqid: term, kch: '22100040', kskcmc: '高等数学（下）', kssj: '2026-06-18 08:30~10:30', js_mc: '综南224', ksxq: '金花校区', jsxm: '王老师', zwh: '18', ksccmc: '第1场', kslbmc: '期末考试', kw0410id: 'EXAM-1' },
+      { xnxqid: term, kch: '11100580', kskcmc: '形势与政策2', kssj: '', js_mc: '', ksxq: '', jsxm: '田老师', zwh: '', ksccmc: '', kslbmc: '随堂考试', bz: '时间另行通知' }
+    ] }), { headers: { 'Content-Type': 'application/json' } });
+  }
   throw new Error(`Unexpected upstream request: ${options.method || 'GET'} ${url}`);
 };
 
@@ -157,7 +170,22 @@ assert.deepEqual(planData.items[0], {
 });
 assert.equal(planData.items[1].nature, '院级选修课');
 
-const logout = await onRequest(context('logout', 'POST', { cookie: cookiePair(plan) }));
+const exams = await onRequest(context('exams', 'GET', { cookie: cookiePair(plan), query: '?term=2025-2026-2' }));
+assert.equal(exams.status, 200);
+const examData = await exams.json();
+assert.equal(examData.ok, true);
+assert.deepEqual(examData.terms, ['2025-2026-1', '2025-2026-2']);
+assert.equal(examData.selectedTerm, '2025-2026-2');
+assert.equal(examData.items.length, 2);
+assert.deepEqual(examData.items[0], {
+  index: 1, term: '2025-2026-2', code: '22100040', name: '高等数学（下）',
+  timeText: '2026-06-18 08:30~10:30', date: '2026-06-18', startTime: '08:30', endTime: '10:30',
+  room: '综南224', campus: '金花校区', teacher: '王老师', seat: '18', session: '第1场',
+  type: '期末考试', note: '', detailId: 'EXAM-1'
+});
+assert.equal(examData.items[1].note, '时间另行通知');
+
+const logout = await onRequest(context('logout', 'POST', { cookie: cookiePair(exams) }));
 assert.equal(logout.status, 200);
 assert.match(logout.headers.get('set-cookie'), /Max-Age=0/);
 
@@ -184,4 +212,4 @@ const forbiddenPlaintextOrigin = await onRequest({
 assert.equal(forbiddenPlaintextOrigin.status, 500);
 assert.match((await forbiddenPlaintextOrigin.json()).error, /临时 HTTP 仅允许学校官方教务域名/);
 
-console.log('API tests passed: captcha, encrypted session, login, grades, semester and weekly schedules, training plan, logout, errors, origin check');
+console.log('API tests passed: captcha, encrypted session, login, grades, semester and weekly schedules, exams, training plan, logout, errors, origin check');

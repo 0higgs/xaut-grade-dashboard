@@ -36,6 +36,9 @@ export async function onRequest(context) {
     if (action === 'plan' && request.method === 'GET') {
       return await handlePlan(request, env);
     }
+    if (action === 'exams' && request.method === 'GET') {
+      return await handleExams(request, env);
+    }
     if (action === 'logout' && request.method === 'POST') {
       assertSameOrigin(request);
       return jsonResponse({ ok: true }, 200, {
@@ -255,6 +258,60 @@ async function handlePlan(request, env) {
   });
 }
 
+async function handleExams(request, env) {
+  const state = await requireSession(request, env);
+  const requestedTerm = new URL(request.url).searchParams.get('term')?.trim() || '';
+  if (requestedTerm && !/^20\d{2}-20\d{2}-[123]$/.test(requestedTerm)) {
+    throw httpError(400, '学期格式无效');
+  }
+
+  const pagePath = '/jsxsd/xsks/xsksap_query';
+  const pageResult = await upstreamRequest(pagePath, {
+    method: 'GET',
+    headers: { Accept: 'text/html,application/xhtml+xml' }
+  }, state.cookies, env);
+  const pageHtml = await pageResult.text();
+  if (isLoginPage(pageHtml)) throw httpError(401, '登录会话已失效，请重新登录');
+
+  const terms = parseExamTerms(pageHtml).slice(0, MAX_TERMS);
+  if (requestedTerm && terms.length && !terms.includes(requestedTerm)) {
+    throw httpError(400, '所选学期不在教务系统可用范围内');
+  }
+  const selectedTerm = requestedTerm || parseSelectedExamTerm(pageHtml) || terms[0] || '';
+  const items = [];
+  let total = 0;
+  const pageSize = 200;
+  for (let pageNum = 1; pageNum <= 3; pageNum++) {
+    const query = new URLSearchParams({
+      xnxqid: selectedTerm,
+      xqlb: '',
+      pageNum: String(pageNum),
+      pageSize: String(pageSize)
+    });
+    const result = await upstreamRequest(`/jsxsd/xsks/xsksap_list?${query}`, {
+      method: 'GET',
+      headers: {
+        Accept: 'application/json,text/plain,*/*',
+        Referer: `${upstreamOrigin(env)}${pagePath}`
+      }
+    }, state.cookies, env);
+    const text = await result.text();
+    if (isLoginPage(text)) throw httpError(401, '登录会话已失效，请重新登录');
+    const payload = parseExamPayload(text, selectedTerm);
+    total = Math.max(total, payload.count);
+    items.push(...payload.items);
+    if (items.length >= total || payload.items.length < pageSize) break;
+  }
+
+  const token = await encryptSession({
+    cookies: state.cookies,
+    exp: Date.now() + SESSION_TTL_SECONDS * 1000
+  }, env);
+  return jsonResponse({ ok: true, terms, selectedTerm, count: total, items: items.slice(0, 600) }, 200, {
+    'Set-Cookie': sessionCookie(token, request)
+  });
+}
+
 async function upstreamRequest(path, options, jar, env) {
   let url = new URL(path, upstreamOrigin(env));
   let method = options.method || 'GET';
@@ -445,6 +502,70 @@ function parseTrainingPlan(html) {
     if (items.length >= 300) break;
   }
   return items;
+}
+
+function parseExamTerms(html) {
+  const select = html.match(/<select\b[^>]*(?:name|id)=["']xnxqid["'][^>]*>[\s\S]*?<\/select>/i)?.[0] || '';
+  const terms = [];
+  for (const match of select.matchAll(/<option\b[^>]*value=["']([^"']*)["'][^>]*>/gi)) {
+    const value = decodeHtml(match[1]).trim();
+    if (/^20\d{2}-20\d{2}-[123]$/.test(value) && !terms.includes(value)) terms.push(value);
+  }
+  return terms;
+}
+
+function parseSelectedExamTerm(html) {
+  const select = html.match(/<select\b[^>]*(?:name|id)=["']xnxqid["'][^>]*>[\s\S]*?<\/select>/i)?.[0] || '';
+  const selected = select.match(/<option\b[^>]*value=["']([^"']+)["'][^>]*\bselected(?:=["'][^"']*["'])?[^>]*>/i)?.[1]
+    || select.match(/<option\b[^>]*\bselected(?:=["'][^"']*["'])?[^>]*value=["']([^"']+)["'][^>]*>/i)?.[1]
+    || '';
+  return decodeHtml(selected).trim();
+}
+
+function parseExamPayload(text, selectedTerm) {
+  let payload;
+  try {
+    payload = JSON.parse(text);
+  } catch {
+    throw httpError(502, '教务系统没有返回可识别的考试安排', false);
+  }
+  if (payload?.code !== undefined && String(payload.code) !== '0') {
+    throw httpError(502, '教务系统考试安排接口返回异常', false);
+  }
+  const data = Array.isArray(payload?.data) ? payload.data : [];
+  const count = Math.max(0, Number(payload?.count) || data.length);
+  const items = data.map((row, index) => normalizeExamItem(row, selectedTerm, index)).filter(item => item.name);
+  return { count, items };
+}
+
+function normalizeExamItem(row, selectedTerm, index) {
+  const value = (...keys) => {
+    for (const key of keys) {
+      const candidate = row?.[key];
+      if (candidate !== undefined && candidate !== null && String(candidate).trim()) return stripHtml(candidate);
+    }
+    return '';
+  };
+  const timeText = value('kssj', 'kssjmc', 'examTime');
+  const timeMatch = timeText.match(/(20\d{2}-\d{2}-\d{2})\s+(\d{1,2}:\d{2})\s*[~～—-]\s*(\d{1,2}:\d{2})/);
+  return {
+    index: index + 1,
+    term: value('xnxqid', 'xnxq01id') || selectedTerm,
+    code: value('kch', 'kcdm', 'courseCode'),
+    name: value('kskcmc', 'kcmc', 'kc_mc', 'courseName'),
+    timeText,
+    date: timeMatch?.[1] || '',
+    startTime: timeMatch?.[2]?.padStart(5, '0') || '',
+    endTime: timeMatch?.[3]?.padStart(5, '0') || '',
+    room: value('js_mc', 'ksdd', 'ksjc', 'jsmc', 'room'),
+    campus: value('ksxq', 'xqmc', 'campus'),
+    teacher: value('jsxm', 'xm', 'teacher'),
+    seat: value('zwh', 'seat'),
+    session: value('ksccmc', 'kscc', 'session'),
+    type: value('kslbmc', 'kslb', 'kslx', 'ksxz', 'type'),
+    note: value('bz', 'bzxx', 'remark'),
+    detailId: value('kw0410id')
+  };
 }
 
 function weekDatesFrom(value) {
