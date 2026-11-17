@@ -5,9 +5,11 @@
   "scripts": {
     "dev": "wrangler pages dev public",
     "deploy": "wrangler pages deploy public",
-    "test": "node tests/api.test.mjs && node tests/browser.test.mjs"
+    "test": "node tests/api.test.mjs && node tests/browser.test.mjs && node tests/ocr-diagnostic.mjs"
   },
   "devDependencies": {
-    "wrangler": "^4.0.0"
+    "@tesseract.js-data/eng": "^1.0.0",
+    "tesseract.js": "^7.0.0",
+    "wrangler": "^4.160.0"
   }
 }
