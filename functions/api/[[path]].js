@@ -101,12 +101,12 @@ async function handleReminderSubscribe(request, env) {
       sourceKey: reminderSourceKey(item)
     };
   }).filter(Boolean);
-  if (!exams.length) throw httpError(400, '没有可提醒的未来考试');
-
   const token = randomToken();
   const tokenHash = await sha256Hex(token);
   const subscriptionId = crypto.randomUUID();
-  const expiresAt = Math.max(...exams.map(item => item.endAt || item.startAt)) + 30 * 86400000;
+  const expiresAt = exams.length
+    ? Math.max(...exams.map(item => item.endAt || item.startAt)) + 30 * 86400000
+    : now + 30 * 86400000;
   const encryptedSession = await encryptReminderSession({ cookies: loginState.cookies, capturedAt: now }, env);
   const sessionExpiresAt = now + 30 * 86400000;
   const existing = await env.REMINDERS_DB.prepare('SELECT id, created_at FROM reminder_subscriptions WHERE email = ?').bind(email).first();
@@ -137,8 +137,8 @@ async function handleReminderSubscribe(request, env) {
     await sendResendEmail(env, {
       to: email,
       subject: '确认开启考试邮件提醒',
-      html: `<div style="font-family:system-ui,sans-serif;line-height:1.7;color:#172033"><h2>确认开启考试提醒</h2><p>你正在为 ${exams.length} 门未来考试开启提醒。确认后，系统会每天自动检查新增或变更的考试安排。</p><p><a href="${escapeHtmlServer(confirmUrl)}" style="display:inline-block;padding:12px 18px;border-radius:9px;background:#2458e6;color:#fff;text-decoration:none">确认开启提醒</a></p><p style="color:#68738a">提醒服务只临时保存加密后的教务会话，不保存账号、密码或验证码。如果不是你本人操作，请忽略此邮件。</p></div>`,
-      text: `确认开启考试提醒\n\n你正在为 ${exams.length} 门未来考试开启提醒。确认后，系统会每天自动检查新增或变更的考试安排。\n\n确认链接：${confirmUrl}\n\n提醒服务不保存账号、密码或验证码。`
+      html: `<div style="font-family:system-ui,sans-serif;line-height:1.7;color:#172033"><h2>确认开启考试提醒</h2><p>当前已同步 ${exams.length} 门未来考试。确认后，系统会每天自动检查新增或变更的考试安排。</p><p><a href="${escapeHtmlServer(confirmUrl)}" style="display:inline-block;padding:12px 18px;border-radius:9px;background:#2458e6;color:#fff;text-decoration:none">确认开启提醒</a></p><p style="color:#68738a">提醒服务只临时保存加密后的教务会话，不保存账号、密码或验证码。如果不是你本人操作，请忽略此邮件。</p></div>`,
+      text: `确认开启考试提醒\n\n当前已同步 ${exams.length} 门未来考试。确认后，系统会每天自动检查新增或变更的考试安排。\n\n确认链接：${confirmUrl}\n\n提醒服务不保存账号、密码或验证码。`
     }, `verify-${subscriptionId}`);
   } catch (error) {
     await env.REMINDERS_DB.prepare('DELETE FROM reminder_subscriptions WHERE id = ?').bind(subscriptionId).run();
