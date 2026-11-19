@@ -33,10 +33,10 @@ Pages Functions 仅通过学校官方 HTTPS 教务域名转发请求；非 HTTPS
 - `/api/plan`：读取并结构化解析培养方案执行计划
 - `/api/logout`：立即清除加密会话
 - `/api/reminders/*`：订阅、验证、查询、停用和删除考试提醒
-- `src/reminder-worker.js`：每 15 分钟扫描到期任务并通过 Resend 发信
-- `migrations/0001_exam_reminders.sql`：D1 提醒订阅、考试和发送任务表
+- `src/reminder-worker.js`：每 15 分钟扫描到期任务，并按每位订阅者的计划每天检查一次考试安排
+- `migrations/0001_exam_reminders.sql`、`0002_automatic_exam_sync.sql`：D1 提醒、考试、发送任务及自动同步状态
 
-成绩、课表、考试安排与执行计划按用户选择在当前浏览器的 `localStorage` 中缓存 7 天或 30 天。只有用户主动开启邮件提醒时，邮箱、提醒时间和未来考试的必要信息才会保存到 D1；服务端不保存账号、密码、验证码、成绩或课表。
+成绩、课表、考试安排与执行计划按用户选择在当前浏览器的 `localStorage` 中缓存 7 天或 30 天。用户创建邮件提醒后，邮箱、提醒时间、未来考试和单独密钥加密的教务会话会保存到 D1，以便每天检查新增或变更的考试；服务端不保存账号、密码、验证码、成绩或课表。会话失效后自动查询会暂停并邮件通知用户重新登录。
 
 ## 本地运行
 
@@ -81,8 +81,9 @@ Pages Functions 仅通过学校官方 HTTPS 教务域名转发请求；非 HTTPS
 1. 创建 D1 并把数据库 ID 同时填写到 `wrangler.jsonc` 和 `wrangler.reminders.jsonc`。
 2. 应用结构：`npx wrangler d1 migrations apply xaut-exam-reminders --remote --config wrangler.reminders.jsonc`。
 3. 将 `REMINDER_FROM` 设置为已验证域名下的发件地址；当前生产环境使用 `XAUT 考试提醒 <reminders@xautjw.cn>`。
-4. 分别为 Pages 项目和定时 Worker 设置 `RESEND_API_KEY` Secret，不能写进仓库。
-5. 部署 Pages，再执行 `npx wrangler deploy --config wrangler.reminders.jsonc` 部署定时 Worker。
+4. 生成一个独立的 64 位十六进制 `SYNC_SESSION_SECRET`，分别以 Secret 形式写入 Pages 项目和提醒 Worker。两边必须完全相同，且不能提交到 Git。
+5. 分别为 Pages 项目和定时 Worker 设置 `RESEND_API_KEY` Secret，不能写进仓库。
+6. 部署 Pages，再执行 `npx wrangler deploy --config wrangler.reminders.jsonc` 部署定时 Worker。
 
 订阅默认处于待验证状态，用户点击验证邮件后才会开始发送。用户可以从网页停用提醒或彻底删除邮箱和提醒数据；最后一门考试结束 30 天后数据会自动清理。
 

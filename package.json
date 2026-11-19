@@ -1,11 +1,12 @@
 {
   "name": "xaut-grade-dashboard",
   "version": "1.0.0",
+  "type": "module",
   "private": true,
   "scripts": {
     "dev": "wrangler pages dev public",
     "deploy": "wrangler pages deploy public",
-    "test": "node tests/api.test.mjs && node tests/browser.test.mjs && node tests/ocr-diagnostic.mjs"
+    "test": "node tests/api.test.mjs && node tests/exam-sync.test.mjs && node tests/browser.test.mjs && node tests/ocr-diagnostic.mjs"
   },
   "devDependencies": {
     "@tesseract.js-data/eng": "^1.0.0",

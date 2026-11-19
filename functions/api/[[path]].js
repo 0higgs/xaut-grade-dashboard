@@ -4,6 +4,7 @@ const SESSION_TTL_SECONDS = 15 * 60;
 const MAX_TERMS = 30;
 const MAX_UPSTREAM_BYTES = 2 * 1024 * 1024;
 const SESSION_AAD = new TextEncoder().encode('xaut-grade-session-v1');
+const REMINDER_SESSION_AAD = new TextEncoder().encode('xaut-exam-reminder-session-v1');
 
 export async function onRequest(context) {
   const { request, env, params } = context;
@@ -12,7 +13,7 @@ export async function onRequest(context) {
 
   try {
     if (action === 'reminders/config' && request.method === 'GET') {
-      return jsonResponse({ ok: true, configured: Boolean(env.REMINDERS_DB && env.RESEND_API_KEY && env.REMINDER_FROM) });
+      return jsonResponse({ ok: true, configured: Boolean(env.REMINDERS_DB && env.RESEND_API_KEY && env.REMINDER_FROM && env.SYNC_SESSION_SECRET) });
     }
     if (action === 'reminders/subscribe' && request.method === 'POST') {
       assertSameOrigin(request);
@@ -78,6 +79,7 @@ export async function onRequest(context) {
 
 async function handleReminderSubscribe(request, env) {
   requireReminderService(env);
+  const loginState = await requireSession(request, env);
   const input = await readJson(request, 128 * 1024);
   const email = String(input.email || '').trim().toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email) || email.length > 254) {
@@ -95,7 +97,8 @@ async function handleReminderSubscribe(request, env) {
       id: crypto.randomUUID(), fingerprint: safeReminderText(item.fingerprint || `${item.term}|${item.code}|${item.name}|${startAt}`, 300),
       term: safeReminderText(item.term, 32), code: safeReminderText(item.code, 64),
       name: safeReminderText(item.name || `考试 ${index + 1}`, 160), startAt, endAt,
-      room: safeReminderText(item.room, 160), campus: safeReminderText(item.campus, 160), seat: safeReminderText(item.seat, 64)
+      room: safeReminderText(item.room, 160), campus: safeReminderText(item.campus, 160), seat: safeReminderText(item.seat, 64),
+      sourceKey: reminderSourceKey(item)
     };
   }).filter(Boolean);
   if (!exams.length) throw httpError(400, '没有可提醒的未来考试');
@@ -104,6 +107,8 @@ async function handleReminderSubscribe(request, env) {
   const tokenHash = await sha256Hex(token);
   const subscriptionId = crypto.randomUUID();
   const expiresAt = Math.max(...exams.map(item => item.endAt || item.startAt)) + 30 * 86400000;
+  const encryptedSession = await encryptReminderSession({ cookies: loginState.cookies, capturedAt: now }, env);
+  const sessionExpiresAt = now + 30 * 86400000;
   const existing = await env.REMINDERS_DB.prepare('SELECT id, created_at FROM reminder_subscriptions WHERE email = ?').bind(email).first();
   if (existing?.created_at && now - Number(existing.created_at) < 5 * 60 * 1000) {
     throw httpError(429, '验证邮件刚刚已发送，请五分钟后再试');
@@ -111,12 +116,13 @@ async function handleReminderSubscribe(request, env) {
   const statements = [];
   if (existing?.id) statements.push(env.REMINDERS_DB.prepare('DELETE FROM reminder_subscriptions WHERE id = ?').bind(existing.id));
   statements.push(env.REMINDERS_DB.prepare(`INSERT INTO reminder_subscriptions
-    (id,email,token_hash,status,created_at,updated_at,expires_at) VALUES (?,?,?,?,?,?,?)`)
-    .bind(subscriptionId, email, tokenHash, 'pending', now, now, expiresAt));
+    (id,email,token_hash,status,created_at,updated_at,expires_at,encrypted_session,session_expires_at,sync_status,next_sync_at,lead_minutes)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`)
+    .bind(subscriptionId, email, tokenHash, 'pending', now, now, expiresAt, encryptedSession, sessionExpiresAt, 'ready', now + 5 * 60000, JSON.stringify(leads)));
   for (const exam of exams) {
     statements.push(env.REMINDERS_DB.prepare(`INSERT INTO reminder_exams
-      (id,subscription_id,fingerprint,term,code,name,start_at,end_at,room,campus,seat) VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
-      .bind(exam.id, subscriptionId, exam.fingerprint, exam.term, exam.code, exam.name, exam.startAt, exam.endAt, exam.room, exam.campus, exam.seat));
+      (id,subscription_id,fingerprint,term,code,name,start_at,end_at,room,campus,seat,source_key,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+      .bind(exam.id, subscriptionId, exam.fingerprint, exam.term, exam.code, exam.name, exam.startAt, exam.endAt, exam.room, exam.campus, exam.seat, exam.sourceKey, now));
     for (const lead of leads) {
       statements.push(env.REMINDERS_DB.prepare(`INSERT INTO reminder_jobs
         (id,subscription_id,exam_id,lead_minutes,due_at,status,attempts,created_at,updated_at) VALUES (?,?,?,?,?,'pending',0,?,?)`)
@@ -131,7 +137,8 @@ async function handleReminderSubscribe(request, env) {
     await sendResendEmail(env, {
       to: email,
       subject: '确认开启考试邮件提醒',
-      html: `<div style="font-family:system-ui,sans-serif;line-height:1.7;color:#172033"><h2>确认开启考试提醒</h2><p>你正在为 ${exams.length} 门未来考试开启提醒。</p><p><a href="${escapeHtmlServer(confirmUrl)}" style="display:inline-block;padding:12px 18px;border-radius:9px;background:#2458e6;color:#fff;text-decoration:none">确认开启提醒</a></p><p style="color:#68738a">如果不是你本人操作，请忽略此邮件。账号和密码从未上传到提醒服务。</p></div>`
+      html: `<div style="font-family:system-ui,sans-serif;line-height:1.7;color:#172033"><h2>确认开启考试提醒</h2><p>你正在为 ${exams.length} 门未来考试开启提醒。确认后，系统会每天自动检查新增或变更的考试安排。</p><p><a href="${escapeHtmlServer(confirmUrl)}" style="display:inline-block;padding:12px 18px;border-radius:9px;background:#2458e6;color:#fff;text-decoration:none">确认开启提醒</a></p><p style="color:#68738a">提醒服务只临时保存加密后的教务会话，不保存账号、密码或验证码。如果不是你本人操作，请忽略此邮件。</p></div>`,
+      text: `确认开启考试提醒\n\n你正在为 ${exams.length} 门未来考试开启提醒。确认后，系统会每天自动检查新增或变更的考试安排。\n\n确认链接：${confirmUrl}\n\n提醒服务不保存账号、密码或验证码。`
     }, `verify-${subscriptionId}`);
   } catch (error) {
     await env.REMINDERS_DB.prepare('DELETE FROM reminder_subscriptions WHERE id = ?').bind(subscriptionId).run();
@@ -151,7 +158,7 @@ async function handleReminderConfirm(request, env) {
     .bind(now, now, tokenHash, now).run();
   const confirmed = Number(result?.meta?.changes || 0) > 0;
   const title = confirmed ? '考试提醒已开启' : '确认链接无效或已过期';
-  const detail = confirmed ? '之后会按你选择的时间发送提醒。你可以回到工具中查看、停用或删除提醒。' : '请回到考试安排页面重新提交。';
+  const detail = confirmed ? '之后会按你选择的时间发送提醒，并每天自动检查新增或变更的考试安排。你可以回到工具中查看、停用或删除提醒。' : '请回到考试安排页面重新提交。';
   return htmlResponse(`<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><title>${title}</title><body style="margin:0;background:#f4f6fb;font:16px/1.7 system-ui,sans-serif;color:#172033"><main style="max-width:620px;margin:12vh auto;background:#fff;padding:36px;border-radius:18px"><h1>${title}</h1><p>${detail}</p><p><a href="${escapeHtmlServer(publicAppUrl(request, env))}">返回成绩速查</a></p></main></body></html>`, confirmed ? 200 : 400);
 }
 
@@ -159,11 +166,12 @@ async function handleReminderStatus(request, env) {
   requireReminderDatabase(env);
   const token = new URL(request.url).searchParams.get('token') || '';
   const tokenHash = await sha256Hex(validateReminderToken(token));
-  const row = await env.REMINDERS_DB.prepare(`SELECT status, expires_at,
+  const row = await env.REMINDERS_DB.prepare(`SELECT status, expires_at, sync_status, last_sync_at, next_sync_at,
     (SELECT COUNT(*) FROM reminder_exams WHERE subscription_id=reminder_subscriptions.id) AS exam_count
     FROM reminder_subscriptions WHERE token_hash=?`).bind(tokenHash).first();
   if (!row) throw httpError(404, '未找到提醒订阅');
-  return jsonResponse({ ok: true, status: row.status, expiresAt: Number(row.expires_at), examCount: Number(row.exam_count) });
+  return jsonResponse({ ok: true, status: row.status, syncStatus: row.sync_status, lastSyncAt: Number(row.last_sync_at) || null,
+    nextSyncAt: Number(row.next_sync_at) || null, expiresAt: Number(row.expires_at), examCount: Number(row.exam_count) });
 }
 
 async function handleReminderMutation(request, env, mode) {
@@ -176,7 +184,7 @@ async function handleReminderMutation(request, env, mode) {
     return jsonResponse({ ok: true, status: 'deleted' });
   }
   const now = Date.now();
-  const result = await env.REMINDERS_DB.prepare("UPDATE reminder_subscriptions SET status='disabled', updated_at=? WHERE token_hash=?")
+  const result = await env.REMINDERS_DB.prepare("UPDATE reminder_subscriptions SET status='disabled', sync_status='disabled', encrypted_session=NULL, pending_notice=NULL, next_sync_at=NULL, updated_at=? WHERE token_hash=?")
     .bind(now, tokenHash).run();
   if (!Number(result?.meta?.changes || 0)) throw httpError(404, '未找到提醒订阅');
   return jsonResponse({ ok: true, status: 'disabled' });
@@ -188,11 +196,33 @@ function requireReminderDatabase(env) {
 
 function requireReminderService(env) {
   requireReminderDatabase(env);
-  if (!env.RESEND_API_KEY || !env.REMINDER_FROM) throw httpError(503, '考试提醒邮件服务尚未配置');
+  if (!env.RESEND_API_KEY || !env.REMINDER_FROM || !env.SYNC_SESSION_SECRET) throw httpError(503, '考试提醒邮件服务尚未配置');
+}
+
+async function encryptReminderSession(value, env) {
+  const key = await reminderSessionKey(env);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const plaintext = new TextEncoder().encode(JSON.stringify(value));
+  const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData: REMINDER_SESSION_AAD }, key, plaintext);
+  const combined = new Uint8Array(iv.length + encrypted.byteLength);
+  combined.set(iv, 0);
+  combined.set(new Uint8Array(encrypted), iv.length);
+  return bytesToBase64Url(combined);
+}
+
+async function reminderSessionKey(env) {
+  const hex = String(env.SYNC_SESSION_SECRET || '').trim();
+  if (!/^[0-9a-f]{64}$/i.test(hex)) throw httpError(500, 'SYNC_SESSION_SECRET 必须是 64 位十六进制密钥');
+  const bytes = new Uint8Array(hex.match(/../g).map(value => parseInt(value, 16)));
+  return crypto.subtle.importKey('raw', bytes, 'AES-GCM', false, ['encrypt', 'decrypt']);
 }
 
 function safeReminderText(value, max) {
   return String(value || '').replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, max);
+}
+
+function reminderSourceKey(item) {
+  return [item?.term, item?.code, item?.name].map(value => safeReminderText(value, 160).toLowerCase()).join('|').slice(0, 300);
 }
 
 function randomToken() {
@@ -220,7 +250,7 @@ async function sendResendEmail(env, message, idempotencyKey) {
   const response = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
-    body: JSON.stringify({ from: env.REMINDER_FROM, to: [message.to], subject: message.subject, html: message.html })
+    body: JSON.stringify({ from: env.REMINDER_FROM, to: [message.to], subject: message.subject, html: message.html, text: message.text })
   });
   if (!response.ok) throw new Error(`Resend ${response.status}`);
   return response.json();
