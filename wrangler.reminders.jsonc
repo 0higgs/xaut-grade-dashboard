@@ -2,11 +2,13 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "xaut-exam-reminders",
   "main": "src/reminder-worker.js",
+  "workers_dev": false,
   "compatibility_date": "2026-11-19",
   "compatibility_flags": ["nodejs_compat"],
   "upload_source_maps": true,
   "vars": {
-    "PUBLIC_APP_URL": "https://xaut-grade-dashboard.pages.dev"
+    "PUBLIC_APP_URL": "https://xaut-grade-dashboard.pages.dev",
+    "REMINDER_FROM": "XAUT 考试提醒 <reminders@xautjw.cn>"
   },
   "d1_databases": [
     {

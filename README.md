@@ -80,7 +80,7 @@ Pages Functions 仅通过学校官方 HTTPS 教务域名转发请求；非 HTTPS
 
 1. 创建 D1 并把数据库 ID 同时填写到 `wrangler.jsonc` 和 `wrangler.reminders.jsonc`。
 2. 应用结构：`npx wrangler d1 migrations apply xaut-exam-reminders --remote --config wrangler.reminders.jsonc`。
-3. 将 `REMINDER_FROM` 设置为已验证域名下的发件地址，例如 `XAUT 考试提醒 <reminders@example.com>`。
+3. 将 `REMINDER_FROM` 设置为已验证域名下的发件地址；当前生产环境使用 `XAUT 考试提醒 <reminders@xautjw.cn>`。
 4. 分别为 Pages 项目和定时 Worker 设置 `RESEND_API_KEY` Secret，不能写进仓库。
 5. 部署 Pages，再执行 `npx wrangler deploy --config wrangler.reminders.jsonc` 部署定时 Worker。
 

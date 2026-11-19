@@ -7,7 +7,8 @@
   "upload_source_maps": true,
   "vars": {
     "UPSTREAM_ORIGIN": "https://jwgl.xaut.edu.cn",
-    "PUBLIC_APP_URL": "https://xaut-grade-dashboard.pages.dev"
+    "PUBLIC_APP_URL": "https://xaut-grade-dashboard.pages.dev",
+    "REMINDER_FROM": "XAUT 考试提醒 <reminders@xautjw.cn>"
   },
   "d1_databases": [
     {
