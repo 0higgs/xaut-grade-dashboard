@@ -1,6 +1,4 @@
-// Temporary compatibility mode: the university certificate expired on 2026-08-18.
-// Restore both this value and wrangler.jsonc to HTTPS after the certificate is renewed.
-const DEFAULT_UPSTREAM = 'http://jwgl.xaut.edu.cn';
+const DEFAULT_UPSTREAM = 'https://jwgl.xaut.edu.cn';
 const SESSION_COOKIE = 'xaut_grade_session';
 const SESSION_TTL_SECONDS = 15 * 60;
 const MAX_TERMS = 30;
@@ -803,12 +801,7 @@ function clearSessionCookie(request) {
 function upstreamOrigin(env) {
   const origin = String(env.UPSTREAM_ORIGIN || DEFAULT_UPSTREAM).replace(/\/$/, '');
   const parsed = new URL(origin);
-  const isTemporaryOfficialHttp = parsed.protocol === 'http:'
-    && parsed.hostname === 'jwgl.xaut.edu.cn'
-    && parsed.port === '';
-  if (parsed.protocol !== 'https:' && !isTemporaryOfficialHttp) {
-    throw httpError(500, 'UPSTREAM_ORIGIN 必须使用 HTTPS；临时 HTTP 仅允许学校官方教务域名');
-  }
+  if (parsed.protocol !== 'https:') throw httpError(500, 'UPSTREAM_ORIGIN 必须使用 HTTPS');
   return parsed.origin;
 }
 
