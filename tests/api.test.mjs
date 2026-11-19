@@ -119,6 +119,10 @@ function cookiePair(response) {
   return response.headers.get('set-cookie').split(';', 1)[0];
 }
 
+const reminderConfig = await onRequest(context('reminders/config'));
+assert.equal(reminderConfig.status, 200);
+assert.deepEqual(await reminderConfig.json(), { ok: true, configured: false });
+
 const captcha = await onRequest(context('captcha'));
 assert.equal(captcha.status, 200);
 assert.equal(captcha.headers.get('content-type'), 'image/jpeg');

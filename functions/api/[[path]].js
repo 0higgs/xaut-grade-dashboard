@@ -11,6 +11,28 @@ export async function onRequest(context) {
   const action = pathParts.join('/');
 
   try {
+    if (action === 'reminders/config' && request.method === 'GET') {
+      return jsonResponse({ ok: true, configured: Boolean(env.REMINDERS_DB && env.RESEND_API_KEY && env.REMINDER_FROM) });
+    }
+    if (action === 'reminders/subscribe' && request.method === 'POST') {
+      assertSameOrigin(request);
+      return await handleReminderSubscribe(request, env);
+    }
+    if (action === 'reminders/confirm' && request.method === 'GET') {
+      return await handleReminderConfirm(request, env);
+    }
+    if (action === 'reminders/status' && request.method === 'GET') {
+      return await handleReminderStatus(request, env);
+    }
+    if (action === 'reminders/disable' && request.method === 'POST') {
+      assertSameOrigin(request);
+      return await handleReminderMutation(request, env, 'disabled');
+    }
+    if (action === 'reminders/delete' && request.method === 'POST') {
+      assertSameOrigin(request);
+      return await handleReminderMutation(request, env, 'deleted');
+    }
+
     if (!env.SESSION_SECRET) {
       throw httpError(500, '服务尚未配置 SESSION_SECRET');
     }
@@ -52,6 +74,164 @@ export async function onRequest(context) {
       : String(error?.message || '请求失败');
     return jsonResponse({ ok: false, error: safeMessage }, status);
   }
+}
+
+async function handleReminderSubscribe(request, env) {
+  requireReminderService(env);
+  const input = await readJson(request, 128 * 1024);
+  const email = String(input.email || '').trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email) || email.length > 254) {
+    throw httpError(400, '邮箱格式无效');
+  }
+  const leads = [...new Set((Array.isArray(input.leads) ? input.leads : []).map(Number))]
+    .filter(value => [120, 1440, 4320].includes(value));
+  if (!leads.length) throw httpError(400, '请至少选择一个提醒时间');
+  const now = Date.now();
+  const exams = (Array.isArray(input.exams) ? input.exams : []).slice(0, 50).map((item, index) => {
+    const startAt = Number(item.startAt);
+    const endAt = Number(item.endAt) || null;
+    if (!Number.isFinite(startAt) || startAt <= now || startAt > now + 2 * 366 * 86400000) return null;
+    return {
+      id: crypto.randomUUID(), fingerprint: safeReminderText(item.fingerprint || `${item.term}|${item.code}|${item.name}|${startAt}`, 300),
+      term: safeReminderText(item.term, 32), code: safeReminderText(item.code, 64),
+      name: safeReminderText(item.name || `考试 ${index + 1}`, 160), startAt, endAt,
+      room: safeReminderText(item.room, 160), campus: safeReminderText(item.campus, 160), seat: safeReminderText(item.seat, 64)
+    };
+  }).filter(Boolean);
+  if (!exams.length) throw httpError(400, '没有可提醒的未来考试');
+
+  const token = randomToken();
+  const tokenHash = await sha256Hex(token);
+  const subscriptionId = crypto.randomUUID();
+  const expiresAt = Math.max(...exams.map(item => item.endAt || item.startAt)) + 30 * 86400000;
+  const existing = await env.REMINDERS_DB.prepare('SELECT id, created_at FROM reminder_subscriptions WHERE email = ?').bind(email).first();
+  if (existing?.created_at && now - Number(existing.created_at) < 5 * 60 * 1000) {
+    throw httpError(429, '验证邮件刚刚已发送，请五分钟后再试');
+  }
+  const statements = [];
+  if (existing?.id) statements.push(env.REMINDERS_DB.prepare('DELETE FROM reminder_subscriptions WHERE id = ?').bind(existing.id));
+  statements.push(env.REMINDERS_DB.prepare(`INSERT INTO reminder_subscriptions
+    (id,email,token_hash,status,created_at,updated_at,expires_at) VALUES (?,?,?,?,?,?,?)`)
+    .bind(subscriptionId, email, tokenHash, 'pending', now, now, expiresAt));
+  for (const exam of exams) {
+    statements.push(env.REMINDERS_DB.prepare(`INSERT INTO reminder_exams
+      (id,subscription_id,fingerprint,term,code,name,start_at,end_at,room,campus,seat) VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
+      .bind(exam.id, subscriptionId, exam.fingerprint, exam.term, exam.code, exam.name, exam.startAt, exam.endAt, exam.room, exam.campus, exam.seat));
+    for (const lead of leads) {
+      statements.push(env.REMINDERS_DB.prepare(`INSERT INTO reminder_jobs
+        (id,subscription_id,exam_id,lead_minutes,due_at,status,attempts,created_at,updated_at) VALUES (?,?,?,?,?,'pending',0,?,?)`)
+        .bind(crypto.randomUUID(), subscriptionId, exam.id, lead, exam.startAt - lead * 60000, now, now));
+    }
+  }
+  await env.REMINDERS_DB.batch(statements);
+
+  const appUrl = publicAppUrl(request, env);
+  const confirmUrl = `${appUrl}/api/reminders/confirm?token=${encodeURIComponent(token)}`;
+  try {
+    await sendResendEmail(env, {
+      to: email,
+      subject: '确认开启考试邮件提醒',
+      html: `<div style="font-family:system-ui,sans-serif;line-height:1.7;color:#172033"><h2>确认开启考试提醒</h2><p>你正在为 ${exams.length} 门未来考试开启提醒。</p><p><a href="${escapeHtmlServer(confirmUrl)}" style="display:inline-block;padding:12px 18px;border-radius:9px;background:#2458e6;color:#fff;text-decoration:none">确认开启提醒</a></p><p style="color:#68738a">如果不是你本人操作，请忽略此邮件。账号和密码从未上传到提醒服务。</p></div>`
+    }, `verify-${subscriptionId}`);
+  } catch (error) {
+    await env.REMINDERS_DB.prepare('DELETE FROM reminder_subscriptions WHERE id = ?').bind(subscriptionId).run();
+    console.error(JSON.stringify({ event: 'verification_email_failed', subscriptionId, message: String(error?.message || error) }));
+    throw httpError(502, '验证邮件发送失败，请稍后重试', false);
+  }
+  return jsonResponse({ ok: true, status: 'pending', token, examCount: exams.length });
+}
+
+async function handleReminderConfirm(request, env) {
+  requireReminderDatabase(env);
+  const token = new URL(request.url).searchParams.get('token') || '';
+  const tokenHash = await sha256Hex(validateReminderToken(token));
+  const now = Date.now();
+  const result = await env.REMINDERS_DB.prepare(`UPDATE reminder_subscriptions
+    SET status='active', confirmed_at=COALESCE(confirmed_at,?), updated_at=? WHERE token_hash=? AND status IN ('pending','active') AND expires_at>?`)
+    .bind(now, now, tokenHash, now).run();
+  const confirmed = Number(result?.meta?.changes || 0) > 0;
+  const title = confirmed ? '考试提醒已开启' : '确认链接无效或已过期';
+  const detail = confirmed ? '之后会按你选择的时间发送提醒。你可以回到工具中查看、停用或删除提醒。' : '请回到考试安排页面重新提交。';
+  return htmlResponse(`<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><title>${title}</title><body style="margin:0;background:#f4f6fb;font:16px/1.7 system-ui,sans-serif;color:#172033"><main style="max-width:620px;margin:12vh auto;background:#fff;padding:36px;border-radius:18px"><h1>${title}</h1><p>${detail}</p><p><a href="${escapeHtmlServer(publicAppUrl(request, env))}">返回成绩速查</a></p></main></body></html>`, confirmed ? 200 : 400);
+}
+
+async function handleReminderStatus(request, env) {
+  requireReminderDatabase(env);
+  const token = new URL(request.url).searchParams.get('token') || '';
+  const tokenHash = await sha256Hex(validateReminderToken(token));
+  const row = await env.REMINDERS_DB.prepare(`SELECT status, expires_at,
+    (SELECT COUNT(*) FROM reminder_exams WHERE subscription_id=reminder_subscriptions.id) AS exam_count
+    FROM reminder_subscriptions WHERE token_hash=?`).bind(tokenHash).first();
+  if (!row) throw httpError(404, '未找到提醒订阅');
+  return jsonResponse({ ok: true, status: row.status, expiresAt: Number(row.expires_at), examCount: Number(row.exam_count) });
+}
+
+async function handleReminderMutation(request, env, mode) {
+  requireReminderDatabase(env);
+  const input = await readJson(request);
+  const tokenHash = await sha256Hex(validateReminderToken(input.token));
+  if (mode === 'deleted') {
+    const result = await env.REMINDERS_DB.prepare('DELETE FROM reminder_subscriptions WHERE token_hash=?').bind(tokenHash).run();
+    if (!Number(result?.meta?.changes || 0)) throw httpError(404, '未找到提醒订阅');
+    return jsonResponse({ ok: true, status: 'deleted' });
+  }
+  const now = Date.now();
+  const result = await env.REMINDERS_DB.prepare("UPDATE reminder_subscriptions SET status='disabled', updated_at=? WHERE token_hash=?")
+    .bind(now, tokenHash).run();
+  if (!Number(result?.meta?.changes || 0)) throw httpError(404, '未找到提醒订阅');
+  return jsonResponse({ ok: true, status: 'disabled' });
+}
+
+function requireReminderDatabase(env) {
+  if (!env.REMINDERS_DB) throw httpError(503, '考试提醒服务尚未配置');
+}
+
+function requireReminderService(env) {
+  requireReminderDatabase(env);
+  if (!env.RESEND_API_KEY || !env.REMINDER_FROM) throw httpError(503, '考试提醒邮件服务尚未配置');
+}
+
+function safeReminderText(value, max) {
+  return String(value || '').replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, max);
+}
+
+function randomToken() {
+  return bytesToBase64Url(crypto.getRandomValues(new Uint8Array(32)));
+}
+
+function validateReminderToken(value) {
+  const token = String(value || '').trim();
+  if (!/^[A-Za-z0-9_-]{40,64}$/.test(token)) throw httpError(400, '提醒凭证无效');
+  return token;
+}
+
+async function sha256Hex(value) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(value)));
+  return [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+function publicAppUrl(request, env) {
+  const configured = String(env.PUBLIC_APP_URL || '').replace(/\/$/, '');
+  if (configured) return configured;
+  return new URL(request.url).origin;
+}
+
+async function sendResendEmail(env, message, idempotencyKey) {
+  const response = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+    body: JSON.stringify({ from: env.REMINDER_FROM, to: [message.to], subject: message.subject, html: message.html })
+  });
+  if (!response.ok) throw new Error(`Resend ${response.status}`);
+  return response.json();
+}
+
+function escapeHtmlServer(value) {
+  return String(value || '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+}
+
+function htmlResponse(html, status = 200) {
+  return new Response(html, { status, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer', 'X-Content-Type-Options': 'nosniff' } });
 }
 
 async function handleCaptcha(request, env) {
@@ -810,10 +990,10 @@ function assertSameOrigin(request) {
   if (origin && origin !== new URL(request.url).origin) throw httpError(403, '请求来源无效');
 }
 
-async function readJson(request) {
+async function readJson(request, maxBytes = 4096) {
   try {
     const length = Number(request.headers.get('content-length') || 0);
-    if (length > 4096) throw httpError(413, '请求内容过大');
+    if (length > maxBytes) throw httpError(413, '请求内容过大');
     return await request.json();
   } catch (error) {
     if (error?.status) throw error;
